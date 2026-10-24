@@ -1,0 +1,9 @@
+{
+  "name": "taluk-work",
+  "version": "1.0.0",
+  "description": "Tamil Nilam Land Records & Statutory Citizen Services Suite (Chitta Extract, e-Services, A-Register PDF, A-Register Approval Suite, Patta Correction)",
+  "scripts": {
+    "start": "node local_server.js"
+  },
+  "dependencies": {}
+}

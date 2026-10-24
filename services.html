@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tamil Nilam — Land Records &amp; Statutory Citizen Services</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<link rel="stylesheet" href="/services.css">
+</head>
+
+<body>
+<div id="toasts"></div>
+
+<!-- Topbar -->
+<header class="topbar">
+  <div class="inner">
+    <div class="brand">
+      <img src="/logo.jpg" alt="TN Govt Emblem">
+      <div class="t">
+        <h1>Tamil Nilam — Land Records &amp; Citizen Services</h1>
+        <p>Revenue and Disaster Management Department, Government of Tamil Nadu</p>
+      </div>
+    </div>
+    
+    <div class="spacer"></div>
+
+    <div class="topbar-controls">
+      <!-- Switcher to App 1: Reports & Reject Reason Dashboard -->
+      <a href="https://village-auto-test.vercel.app" class="tn-auto-btn switch-btn" id="reportsSwitcherBtn" title="Switch to Reports & Reject Reason Dashboard" target="_blank" style="background: linear-gradient(135deg, #0284c7, #0369a1); border-color: #0284c7; color: #fff; text-decoration: none; padding: 7px 14px; border-radius: 8px; font-weight: 700; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px;">
+        <span>📊</span> Reports &amp; Reject Reason App &rarr;
+      </a>
+    </div>
+
+    <div class="topbar-actions">
+      <span class="pill" id="whoami" style="display:none"></span>
+      <button type="button" class="iconbtn" id="acctBtn" title="My Account" style="display:none">&#128100;</button>
+      <button type="button" class="iconbtn" id="signOutBtn" title="Sign out" style="display:none">&#x23FB;</button>
+      <button type="button" class="iconbtn" id="themeBtn" title="Toggle theme">&#9789;</button>
+    </div>
+  </div>
+</header>
+
+<!-- Primary Navigation Tabs -->
+<nav class="nav-bar-wrap">
+  <div class="nav-bar" id="mainNavBar">
+    <button class="nav-tab active" data-tab="chitta"><span>📜</span> Chitta Extract (Tahsildar)</button>
+    <button class="nav-tab" data-tab="eservices"><span>🌐</span> e-Services (No OTP)</button>
+    <button class="nav-tab" data-tab="areg_pdf"><span>📑</span> A-Register Extract (PDF)</button>
+    <button class="nav-tab" data-tab="areg"><span>📝</span> A-Register Approval Suite</button>
+    <button class="nav-tab" data-tab="patta"><span>✏️</span> Patta Name &amp; Size Correction</button>
+    <button class="nav-tab" data-tab="creds"><span>🔑</span> Tamil Nilam Credentials</button>
+    <button class="nav-tab" data-tab="dbinfo"><span>🗄️</span> Database Info &amp; Query</button>
+    <button class="nav-tab" data-tab="users"><span>👥</span> Authorized Users &amp; Roles</button>
+  </div>
+</nav>
+
+<!-- Main Container for Service Views -->
+<main class="shell">
+  <div id="usersBody" class="service-container">
+    <div style="text-align: center; color: var(--muted); padding: 40px 16px;">
+      <div style="font-size: 28px; margin-bottom: 8px;">⏳</div>
+      <b>Loading Citizen Services Suite…</b>
+    </div>
+  </div>
+</main>
+
+<!-- Account Modal Drawer -->
+<div id="acctBack" class="drawer-back no-print" hidden></div>
+<aside id="acctPanel" class="drawer no-print" hidden aria-label="My account" style="width:min(420px,94vw)">
+  <div class="drawer-head">
+    <h2>My Account</h2>
+    <button class="iconbtn" id="acctClose" aria-label="Close">&#10005;</button>
+  </div>
+  <div style="flex:1 1 auto; overflow:auto; padding:18px 20px">
+    <p class="fstate" id="acctWho" style="margin:0 0 16px"></p>
+    <div class="acat">
+      <h3><i style="background:#2563eb"></i>Change Password</h3>
+      <div class="frow"><label>New</label><input type="password" id="pwNew" autocomplete="new-password" placeholder="at least 6 characters"></div>
+      <div class="frow"><label>Repeat</label><input type="password" id="pwNew2" autocomplete="new-password" placeholder="type it again"></div>
+      <div class="msg" id="pwMsg" style="margin:10px 0 0"></div>
+      <div style="margin-top:12px"><button class="primary" id="pwSave">Update password</button></div>
+    </div>
+  </div>
+</aside>
+
+<!-- Auth Sign-in Gate -->
+<div id="gate" class="no-print">
+  <div class="gatecard">
+    <div class="mark">
+      <img src="/logo.jpg" alt="TN Govt emblem">
+      <div>
+        <b>Tamil Nilam Services</b>
+        <span>Land Records &amp; Statutory Suite</span>
+      </div>
+    </div>
+    <h2 id="gateTitle">Sign in</h2>
+    <p class="sub" id="gateSub">Use your authorized email address and password.</p>
+    <div class="msg" id="gateMsg"></div>
+    <form id="gateForm" autocomplete="on">
+      <label for="gateEmail">Email</label>
+      <input type="email" id="gateEmail" autocomplete="username" required placeholder="name@example.com">
+      <label for="gatePass">Password</label>
+      <input type="password" id="gatePass" autocomplete="current-password" required placeholder="••••••••">
+      <button class="primary" type="submit" id="gateBtn">Sign in</button>
+    </form>
+    <div class="alt">
+      <div style="margin-top:7px"><a id="gateForgot">Forgot password</a></div>
+    </div>
+  </div>
+</div>
+
+<script src="/services.js"></script>
+</body>
+</html>

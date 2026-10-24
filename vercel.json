@@ -1,0 +1,23 @@
+{
+  "regions": [
+    "bom1"
+  ],
+  "functions": {
+    "api/areg.js": {
+      "maxDuration": 60
+    },
+    "api/chitta.js": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/services",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/services.html",
+      "destination": "/index.html"
+    }
+  ]
+}
