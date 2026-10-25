@@ -1065,14 +1065,17 @@ module.exports = async (req, res) => {
     }
 
     // 6. FETCH / SEARCH PATTA DETAILS (BY PATTA NO)
+    // 6. FETCH / SEARCH PATTA DETAILS (BY PATTA NO OR SURVEY / SUBDIVISION)
     if (mode === 'fetch_patta' || mode === 'search_patta' || mode === 'get_patta' || mode === 'chitta_info') {
       const distCode = String(params.distCode || '37');
       const talukCode = String(params.talukCode || '12');
       const villageCode = String(params.villageCode || '045').padStart(3, '0');
-      const pattaNo = params.pattaNo ? String(params.pattaNo).trim() : '';
+      let pattaNo = params.pattaNo ? String(params.pattaNo).trim() : '';
+      let surveyNo = params.surveyNo ? String(params.surveyNo).trim() : '';
+      let subdivNo = params.subdivNo ? String(params.subdivNo).trim() : '';
 
-      if (!pattaNo) {
-        res.status(400).json({ success: false, error: 'Patta Number (pattaNo) is required' });
+      if (!pattaNo && !surveyNo) {
+        res.status(400).json({ success: false, error: 'Patta Number (pattaNo) or Survey Number (surveyNo) is required' });
         return;
       }
 
@@ -1088,77 +1091,187 @@ module.exports = async (req, res) => {
         }
       }
 
-      for (const transType of transTypesToTry) {
-        const inputObj = {
-          districtCode: String(distCode || '37'),
-          talukCode: String(talukCode || '12'),
-          villageCode: String(villageCode || '045').padStart(3, '0'),
-          pattaNo: String(pattaNo),
-          txnType: transType, // 'N' for Natham, 'R' for Rural
-          transType: transType
-        };
+      const candidateCreds = params.username
+        ? [
+            { u: username, p: password, r: roleId },
+            { u: FALLBACK_U, p: FALLBACK_P, r: FALLBACK_R },
+            { u: DEFAULT_U, p: DEFAULT_P, r: DEFAULT_R }
+          ]
+        : [
+            { u: FALLBACK_U, p: FALLBACK_P, r: FALLBACK_R },
+            { u: DEFAULT_U, p: DEFAULT_P, r: DEFAULT_R }
+          ];
+      const uniqueCreds = candidateCreds.filter((c, idx, arr) => arr.findIndex(x => x.u === c.u && x.p === c.p && x.r === c.r) === idx);
 
-        try {
-          const data = await callTnService('Master/getChittaExtractData', inputObj, 'GET', username, password, roleId);
-          if (data && Array.isArray(data.existingOwner_landdetails) && data.existingOwner_landdetails.length > 0) {
-            const item = data.existingOwner_landdetails[0];
-
-            let ownerName = '';
-            if (item && Array.isArray(item.OWNERS) && item.OWNERS.length > 0) {
-              const o = item.OWNERS[0];
-              const mainOwner = o.owner_unicode || o.owner_name || '';
-              const relName = o.relative_unicode || o.rel_name || '';
-              const reln = o.reln_desc || '';
-              ownerName = mainOwner && relName ? `${mainOwner} ${reln ? reln + ' ' : ''}${relName}`.trim() : (mainOwner || relName);
-            }
-
-            let surveyNo = '';
-            let subdivNo = '';
-            let totalExtent = '';
-            if (item && Array.isArray(item.LAND) && item.LAND.length > 0) {
-              const l = item.LAND[0];
-              surveyNo = l.surveyno || '';
-              subdivNo = l.subdivno || '';
-              totalExtent = `${l.ext_hect != null ? l.ext_hect : 0}.${l.ext_ares != null ? l.ext_ares : '00'}`;
-            }
-
-            if (ownerName || totalExtent) {
-              savePattaToCache(distCode, talukCode, villageCode, {
-                pattaNo,
-                ownerName,
-                totalExtent,
-                surveyNo,
-                subdivNo,
-                villageName: data.village || '',
-                talukName: data.taluk || '',
-                isNatham: transType === 'N',
-                isValid: true
-              });
-
-              res.status(200).json({
-                success: true,
-                distCode,
-                talukCode,
-                villageCode,
-                pattaNo,
-                ownerName,
-                totalExtent,
-                surveyNo,
-                subdivNo,
-                isNatham: transType === 'N',
-                villageName: data.village,
-                talukName: data.taluk
-              });
-              return;
+      // Step 1: If pattaNo is empty but surveyNo is provided, query A-Register extract data to get pattaNo
+      if (!pattaNo && surveyNo) {
+        for (const cred of uniqueCreds) {
+          for (const tType of transTypesToTry) {
+            try {
+              const aregInput = {
+                districtCode: String(distCode).padStart(2, '0'),
+                talukCode: String(talukCode).padStart(2, '0'),
+                villageCode: String(villageCode).padStart(3, '0'),
+                SurveyNo: String(surveyNo).trim(),
+                SubDivNo: subdivNo ? String(subdivNo).trim() : '@',
+                PattaNo: '@',
+                transType: tType
+              };
+              const aregRes = await callTnService('Master/getARegExtractData', aregInput, 'POST', cred.u, cred.p, cred.r, {}, null, 8000);
+              if (aregRes && Array.isArray(aregRes.LAND) && aregRes.LAND.length > 0) {
+                const l = aregRes.LAND[0];
+                if (l.pattano && l.pattano.trim()) {
+                  pattaNo = l.pattano.trim();
+                  if (!subdivNo && l.subdivno) subdivNo = l.subdivno.trim();
+                  break;
+                }
+              }
+            } catch (e) {
+              console.warn(`Survey lookup fallback note (cred=${cred.u}, type=${tType}):`, e.message);
             }
           }
-        } catch (e) {
-          console.warn(`TN service call to Master/getChittaExtractData with transType=${transType} note:`, e.message);
+          if (pattaNo) break;
+        }
+      }
+
+      // Step 2: Query Master/getChittaExtractData with candidate credentials
+      if (pattaNo) {
+        for (const cred of uniqueCreds) {
+          for (const transType of transTypesToTry) {
+            const inputObj = {
+              districtCode: String(distCode || '37'),
+              talukCode: String(talukCode || '12'),
+              villageCode: String(villageCode || '045').padStart(3, '0'),
+              pattaNo: String(pattaNo),
+              txnType: transType, // 'N' for Natham, 'R' for Rural
+              transType: transType
+            };
+
+            try {
+              const data = await callTnService('Master/getChittaExtractData', inputObj, 'GET', cred.u, cred.p, cred.r, {}, null, 8000);
+              if (data && Array.isArray(data.existingOwner_landdetails) && data.existingOwner_landdetails.length > 0) {
+                const item = data.existingOwner_landdetails[0];
+
+                let ownerName = '';
+                if (item && Array.isArray(item.OWNERS) && item.OWNERS.length > 0) {
+                  const o = item.OWNERS[0];
+                  const mainOwner = o.owner_unicode || o.owner_name || '';
+                  const relName = o.relative_unicode || o.rel_name || '';
+                  const reln = o.reln_desc || '';
+                  ownerName = mainOwner && relName ? `${mainOwner} ${reln ? reln + ' ' : ''}${relName}`.trim() : (mainOwner || relName);
+                }
+
+                let sNo = surveyNo;
+                let subNo = subdivNo;
+                let totalExtent = '';
+                if (item && Array.isArray(item.LAND) && item.LAND.length > 0) {
+                  const l = item.LAND[0];
+                  sNo = (l.surveyno || '').trim() || sNo;
+                  subNo = (l.subdivno || '').trim() || subNo;
+                  totalExtent = `${l.ext_hect != null ? l.ext_hect : 0}.${l.ext_ares != null ? l.ext_ares : '00'}`;
+                }
+
+                if (ownerName || totalExtent) {
+                  savePattaToCache(distCode, talukCode, villageCode, {
+                    pattaNo,
+                    ownerName,
+                    totalExtent,
+                    surveyNo: sNo,
+                    subdivNo: subNo,
+                    villageName: data.village || '',
+                    talukName: data.taluk || '',
+                    isNatham: transType === 'N',
+                    isValid: true
+                  });
+
+                  res.status(200).json({
+                    success: true,
+                    distCode,
+                    talukCode,
+                    villageCode,
+                    pattaNo,
+                    ownerName,
+                    totalExtent,
+                    surveyNo: sNo,
+                    subdivNo: subNo,
+                    isNatham: transType === 'N',
+                    villageName: (data.village || '').trim(),
+                    talukName: (data.taluk || '').trim()
+                  });
+                  return;
+                }
+              }
+            } catch (e) {
+              console.warn(`TN service call to Master/getChittaExtractData with cred=${cred.u} transType=${transType} note:`, e.message);
+            }
+          }
+        }
+      }
+
+      // Step 3: Query Master/getARegExtractData directly if chitta extract did not return details
+      if (surveyNo) {
+        for (const cred of uniqueCreds) {
+          for (const transType of transTypesToTry) {
+            try {
+              const aregInput = {
+                districtCode: String(distCode).padStart(2, '0'),
+                talukCode: String(talukCode).padStart(2, '0'),
+                villageCode: String(villageCode).padStart(3, '0'),
+                SurveyNo: String(surveyNo).trim(),
+                SubDivNo: subdivNo ? String(subdivNo).trim() : '@',
+                PattaNo: pattaNo ? String(pattaNo).trim() : '@',
+                transType: transType
+              };
+              const aregRes = await callTnService('Master/getARegExtractData', aregInput, 'POST', cred.u, cred.p, cred.r, {}, null, 8000);
+              if (aregRes && Array.isArray(aregRes.LAND) && aregRes.LAND.length > 0) {
+                const l = aregRes.LAND[0];
+                let ownerName = '';
+                if (Array.isArray(l.landDetails_owner_name) && l.landDetails_owner_name.length > 0) {
+                  ownerName = l.landDetails_owner_name.map(o => o.ownername || o.owner_unicode || '').filter(Boolean).join(', ');
+                }
+                const sNo = (l.surveyno || surveyNo).trim();
+                const subNo = (l.subdivno || subdivNo).trim();
+                const pNo = (l.pattano || pattaNo).trim();
+                const totalExtent = `${l.ext_hect != null ? l.ext_hect : 0}.${l.ext_ares != null ? l.ext_ares : '00'}`;
+                if (ownerName || totalExtent || pNo) {
+                  savePattaToCache(distCode, talukCode, villageCode, {
+                    pattaNo: pNo,
+                    ownerName,
+                    totalExtent,
+                    surveyNo: sNo,
+                    subdivNo: subNo,
+                    villageName: aregRes.village || '',
+                    talukName: aregRes.taluk || '',
+                    isNatham: transType === 'N',
+                    isValid: true
+                  });
+
+                  res.status(200).json({
+                    success: true,
+                    distCode,
+                    talukCode,
+                    villageCode,
+                    pattaNo: pNo,
+                    ownerName,
+                    totalExtent,
+                    surveyNo: sNo,
+                    subdivNo: subNo,
+                    isNatham: transType === 'N',
+                    villageName: (aregRes.village || '').trim(),
+                    talukName: (aregRes.taluk || '').trim()
+                  });
+                  return;
+                }
+              }
+            } catch (e) {
+              console.warn(`TN service call to Master/getARegExtractData with cred=${cred.u} note:`, e.message);
+            }
+          }
         }
       }
 
       // Check stored lookup fallback
-      const cached = getPattaFromCache(distCode, talukCode, villageCode, pattaNo, '', '');
+      const cached = getPattaFromCache(distCode, talukCode, villageCode, pattaNo, surveyNo, subdivNo);
       if (cached && cached.isValid) {
         res.status(200).json({
           success: true,
@@ -1168,8 +1281,8 @@ module.exports = async (req, res) => {
           pattaNo: cached.pattaNo || pattaNo,
           ownerName: cached.ownerName,
           totalExtent: cached.totalExtent,
-          surveyNo: cached.surveyNo || '',
-          subdivNo: cached.subdivNo || '',
+          surveyNo: cached.surveyNo || surveyNo,
+          subdivNo: cached.subdivNo || subdivNo,
           isNatham: Boolean(cached.isNatham),
           villageName: cached.villageName || '',
           talukName: cached.talukName || ''
@@ -1179,11 +1292,13 @@ module.exports = async (req, res) => {
 
       res.status(404).json({
         success: false,
-        error: `Live Patta owner details could not be extracted from Tamil Nilam portal for Patta No: ${pattaNo || 'N/A'}.`,
+        error: `Live Patta owner details could not be extracted from Tamil Nilam portal for Patta No: ${pattaNo || 'N/A'}${surveyNo ? ' (Survey: ' + surveyNo + (subdivNo ? '/' + subdivNo : '') + ')' : ''}.`,
         distCode,
         talukCode,
         villageCode,
-        pattaNo
+        pattaNo,
+        surveyNo,
+        subdivNo
       });
       return;
     }

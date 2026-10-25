@@ -3425,11 +3425,19 @@ async function fetchLivePattaInfo() {
   }
 
   try {
-    const url = '/api/areg?mode=fetch_patta&distCode=37&talukCode=' + talukCode + '&villageCode=' + villageCode + '&pattaNo=' + pattaNo + '&surveyNo=' + surveyNo + '&subdivNo=' + subdivNo + '&transType=' + landType;
+    const creds = (typeof getTnCreds === 'function' ? getTnCreds('primary') : null) || {};
+    let url = '/api/areg?mode=fetch_patta&distCode=37&talukCode=' + encodeURIComponent(talukCode) + '&villageCode=' + encodeURIComponent(villageCode) + '&pattaNo=' + encodeURIComponent(pattaNo) + '&surveyNo=' + encodeURIComponent(surveyNo) + '&subdivNo=' + encodeURIComponent(subdivNo) + '&transType=' + encodeURIComponent(landType);
+    if (creds.username && creds.password) {
+      url += '&username=' + encodeURIComponent(creds.username) + '&password=' + encodeURIComponent(creds.password) + '&roleId=' + encodeURIComponent(creds.roleId || '7');
+    }
     const res = await fetch(url);
     const data = await res.json();
 
     if (data.success) {
+      if (data.isNatham !== undefined) {
+        const landTypeSel = document.getElementById('pattaLandTypeSelect');
+        if (landTypeSel) landTypeSel.value = data.isNatham ? 'N' : 'R';
+      }
       const oldNameInp = document.getElementById('pattaOldNameInput');
       if (oldNameInp) oldNameInp.value = data.ownerName;
 
@@ -4085,9 +4093,9 @@ async function renderPattaCorrectionTab() {
             <label style="display: block; font-size: 12px; font-weight: 700; color: var(--ink); margin-bottom: 5px;">
               Patta Number / பட்டா எண் <span style="color: #ef4444;">*</span>
             </label>
-            <div style="display: flex; gap: 6px;">
+            <div style="display: flex; gap: 6px; min-width: 0;">
               <input type="text" id="pattaNoInput" placeholder="e.g. 1245" style="flex: 1; padding: 8px 12px; font-size: 13px; font-weight: 600; border-radius: 8px; border: 1.5px solid var(--line-2); background: var(--surface); color: var(--ink);">
-              <button type="button" id="pattaFetchLiveBtn" title="Search live details by Patta Number or Survey/Subdivision Number" style="background: #0284c7; color: #fff; border: 1px solid #0369a1; padding: 8px 12px; font-size: 12px; font-weight: 700; border-radius: 8px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;">🔍 Search Patta / Survey</button>
+              <button type="button" id="pattaFetchLiveBtn" title="Search live details by Patta Number" style="background: #0284c7; color: #fff; border: 1px solid #0369a1; padding: 8px 14px; font-size: 12.5px; font-weight: 700; border-radius: 8px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">🔍 Search</button>
             </div>
           </div>
 
@@ -4148,9 +4156,9 @@ async function renderPattaCorrectionTab() {
             <label style="display: block; font-size: 12px; font-weight: 700; color: var(--ink); margin-bottom: 5px;">
               Subdivision Number / உட்பிரிவு எண்
             </label>
-            <div style="display: flex; gap: 6px;">
+            <div style="display: flex; gap: 6px; min-width: 0;">
               <input type="text" id="pattaSubdivNoInput" placeholder="e.g. 1A" style="flex: 1; padding: 8px 12px; font-size: 13px; font-weight: 600; border-radius: 8px; border: 1.5px solid var(--line-2); background: var(--surface); color: var(--ink);">
-              <button type="button" id="pattaSurveyFetchLiveBtn" title="Search live details by Survey Number + Subdivision Number" style="background: #0284c7; color: #fff; border: 1px solid #0369a1; padding: 8px 12px; font-size: 12px; font-weight: 700; border-radius: 8px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;">🔍 Search Patta / Survey</button>
+              <button type="button" id="pattaSurveyFetchLiveBtn" title="Search live details by Survey Number + Subdivision Number" style="background: #0284c7; color: #fff; border: 1px solid #0369a1; padding: 8px 14px; font-size: 12.5px; font-weight: 700; border-radius: 8px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">🔍 Search</button>
             </div>
           </div>
 
