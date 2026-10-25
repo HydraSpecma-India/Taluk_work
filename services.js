@@ -214,6 +214,49 @@ function canManageCreds(){
 }
 window.canManageCreds = canManageCreds;
 
+const ALL_38_TN_DISTRICTS = [
+  { id: '17', name: 'Ariyalur' },
+  { id: '35', name: 'Chengalpattu' },
+  { id: '02', name: 'Chennai' },
+  { id: '12', name: 'Coimbatore' },
+  { id: '18', name: 'Cuddalore' },
+  { id: '05', name: 'Dharmapuri' },
+  { id: '13', name: 'Dindigul' },
+  { id: '10', name: 'Erode' },
+  { id: '34', name: 'Kallakurichi' },
+  { id: '04', name: 'Kancheepuram' },
+  { id: '30', name: 'Kanyakumari' },
+  { id: '14', name: 'Karur' },
+  { id: '31', name: 'Krishnagiri' },
+  { id: '24', name: 'Madurai' },
+  { id: '38', name: 'Mayiladuthurai' },
+  { id: '19', name: 'Nagapattinam' },
+  { id: '09', name: 'Namakkal' },
+  { id: '11', name: 'Nilgiris' },
+  { id: '16', name: 'Perambalur' },
+  { id: '22', name: 'Pudukkottai' },
+  { id: '27', name: 'Ramanathapuram' },
+  { id: '37', name: 'Ranipet' },
+  { id: '08', name: 'Salem' },
+  { id: '23', name: 'Sivaganga' },
+  { id: '33', name: 'Tenkasi' },
+  { id: '21', name: 'Thanjavur' },
+  { id: '25', name: 'Theni' },
+  { id: '28', name: 'Thoothukudi' },
+  { id: '15', name: 'Tiruchirappalli' },
+  { id: '29', name: 'Tirunelveli' },
+  { id: '36', name: 'Tirupathur' },
+  { id: '32', name: 'Tiruppur' },
+  { id: '01', name: 'Tiruvallur' },
+  { id: '06', name: 'Tiruvannamalai' },
+  { id: '20', name: 'Tiruvarur' },
+  { id: '07', name: 'Vellore' },
+  { id: '26', name: 'Viluppuram' },
+  { id: '03', name: 'Virudhunagar' }
+];
+window.ALL_38_TN_DISTRICTS = ALL_38_TN_DISTRICTS;
+
+
 
 /* ---------- Service Menu Access ---------- */
 const ALL_MENUS = [
@@ -609,6 +652,12 @@ async function renderUsers(){
     '<div class="f"><label>Email</label><input type="email" id="nuEmail" placeholder="name@example.com"></div>' +
     '<div class="f"><label>Name</label><input type="text" id="nuName" placeholder="optional"></div>' +
     '<div class="f" style="flex:0 0 100px"><label>Role</label><select id="nuRole"><option value="user">User</option><option value="admin">Admin</option></select></div>' +
+    '<div class="f" style="flex:0 0 170px"><label>Site Access</label>' +
+      '<select id="nuSite">' +
+        '<option value="both" selected>Both Sites (Reports &amp; Taluk Work)</option>' +
+        '<option value="talukwork">Taluk Work Only (Citizen Services)</option>' +
+        '<option value="village-auto-test">Reports Only (village-auto-test)</option>' +
+      '</select></div>' +
     '<div class="f" style="flex:1 1 100%"><label>Menu &amp; Table Access <span class="fstate" style="text-transform:none">— choose which report tables and tools this person can access (e.g. 2B Single Report, 2 ISD Rural, 1 Upload, etc.)</span></label>' +
       menuPicker(['upload','isd','single','fline','nisd','chitta','eservices'], 'id="nuMenus"') + '</div>' +
     '<div class="f" style="flex:1 1 100%"><label>Taluks <span class="fstate" style="text-transform:none">— tick the ones this person may open; none ticked means every taluk</span></label>' +
@@ -643,7 +692,8 @@ async function renderUsers(){
       '<td><select data-act="site"'+(u.role==='admin'?' disabled title="Admin always has access to both sites"':'')+'>' +
         '<option value="both"'+(sAcc==='both'?' selected':'')+'>Both Sites</option>' +
         '<option value="village-auto-test"'+(sAcc==='village-auto-test'?' selected':'')+'>village-auto-test</option>' +
-        '<option value="village-applications"'+(sAcc==='village-applications'?' selected':'')+'>village-applications</option></select></td>' +
+        '<option value="talukwork"'+((sAcc==='talukwork'||sAcc==='village-applications')?' selected':'')+'>Taluk Work Only</option>' +
+   '<option value="village-auto-test"'+(sAcc==='village-auto-test'?' selected':'')+'>Reports Only</option></select></td>' +
       '<td>'+(u.role === 'admin'
                ? '<span class="fstate">every taluk (admin)</span>'
                : talukPicker(u.taluks, 'data-act="taluks"'))+'</td>' +
@@ -1460,7 +1510,7 @@ async function initChittaDropdowns() {
     }
     try {
       const creds = getTahsildarCreds();
-      const res = await fetch(`/api/chitta?mode=districts&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
+      const res = await fetch(`/api/areg?mode=districts&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.districts)) {
         __chittaDistrictsCache = data.districts;
@@ -1469,7 +1519,7 @@ async function initChittaDropdowns() {
     } catch (e) {
       console.warn('Failed to load districts from API:', e);
     }
-    return [{ id: '37', name: 'Ranipet' }];
+    return (typeof ALL_38_TN_DISTRICTS !== 'undefined') ? ALL_38_TN_DISTRICTS : [{ id: '37', name: 'Ranipet' }];
   };
 
   // Helper to load taluks for district
@@ -1479,7 +1529,7 @@ async function initChittaDropdowns() {
     }
     try {
       const creds = getTahsildarCreds();
-      const res = await fetch(`/api/chitta?mode=taluks&distCode=${encodeURIComponent(distCode)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
+      const res = await fetch(`/api/areg?mode=taluks&distCode=${encodeURIComponent(distCode)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.taluks)) {
         __chittaTaluksCache[distCode] = data.taluks;
@@ -1506,7 +1556,7 @@ async function initChittaDropdowns() {
     }
     try {
       const creds = getTahsildarCreds();
-      const res = await fetch(`/api/chitta?mode=villages&distCode=${encodeURIComponent(distCode)}&talukCode=${encodeURIComponent(talukCode)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
+      const res = await fetch(`/api/areg?mode=villages&distCode=${encodeURIComponent(distCode)}&talukCode=${encodeURIComponent(talukCode)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.villages)) {
         __chittaVillagesCache[key] = data.villages;
@@ -1728,46 +1778,7 @@ let __aregVillagesCache = {};
 let __aregCurrentPdfBlobUrl = null;
 let __aregCurrentFilename = '';
 
-const ALL_38_TN_DISTRICTS = [
-  { id: '17', name: 'Ariyalur' },
-  { id: '35', name: 'Chengalpattu' },
-  { id: '02', name: 'Chennai' },
-  { id: '12', name: 'Coimbatore' },
-  { id: '18', name: 'Cuddalore' },
-  { id: '05', name: 'Dharmapuri' },
-  { id: '13', name: 'Dindigul' },
-  { id: '10', name: 'Erode' },
-  { id: '34', name: 'Kallakurichi' },
-  { id: '04', name: 'Kancheepuram' },
-  { id: '30', name: 'Kanyakumari' },
-  { id: '14', name: 'Karur' },
-  { id: '31', name: 'Krishnagiri' },
-  { id: '24', name: 'Madurai' },
-  { id: '38', name: 'Mayiladuthurai' },
-  { id: '19', name: 'Nagapattinam' },
-  { id: '09', name: 'Namakkal' },
-  { id: '11', name: 'Nilgiris' },
-  { id: '16', name: 'Perambalur' },
-  { id: '22', name: 'Pudukkottai' },
-  { id: '27', name: 'Ramanathapuram' },
-  { id: '37', name: 'Ranipet' },
-  { id: '08', name: 'Salem' },
-  { id: '23', name: 'Sivaganga' },
-  { id: '33', name: 'Tenkasi' },
-  { id: '21', name: 'Thanjavur' },
-  { id: '25', name: 'Theni' },
-  { id: '28', name: 'Thoothukudi' },
-  { id: '15', name: 'Tiruchirappalli' },
-  { id: '29', name: 'Tirunelveli' },
-  { id: '36', name: 'Tirupathur' },
-  { id: '32', name: 'Tiruppur' },
-  { id: '01', name: 'Tiruvallur' },
-  { id: '06', name: 'Tiruvannamalai' },
-  { id: '20', name: 'Tiruvarur' },
-  { id: '07', name: 'Vellore' },
-  { id: '26', name: 'Viluppuram' },
-  { id: '35', name: 'Virudhunagar' }
-];
+// (ALL_38_TN_DISTRICTS defined at top level)
 
 function renderAregPdfTab() {
   const box = document.getElementById('usersBody');
@@ -2870,7 +2881,7 @@ async function initEservicesDropdowns() {
     }
     try {
       const creds = getTahsildarCreds();
-      const res = await fetch(`/api/chitta?mode=districts&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
+      const res = await fetch(`/api/areg?mode=districts&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.districts)) {
         __chittaDistrictsCache = data.districts;
@@ -2879,7 +2890,7 @@ async function initEservicesDropdowns() {
     } catch (e) {
       console.warn('Failed to load districts from API:', e);
     }
-    return [{ id: '37', name: 'Ranipet' }];
+    return (typeof ALL_38_TN_DISTRICTS !== 'undefined') ? ALL_38_TN_DISTRICTS : [{ id: '37', name: 'Ranipet' }];
   };
 
   // Helper to load taluks for district
@@ -2889,7 +2900,7 @@ async function initEservicesDropdowns() {
     }
     try {
       const creds = getTahsildarCreds();
-      const res = await fetch(`/api/chitta?mode=taluks&distCode=${encodeURIComponent(distCode)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
+      const res = await fetch(`/api/areg?mode=taluks&distCode=${encodeURIComponent(distCode)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.taluks)) {
         __chittaTaluksCache[distCode] = data.taluks;
@@ -2916,7 +2927,7 @@ async function initEservicesDropdowns() {
     }
     try {
       const creds = getTahsildarCreds();
-      const res = await fetch(`/api/chitta?mode=villages&distCode=${encodeURIComponent(distCode)}&talukCode=${encodeURIComponent(talukCode)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
+      const res = await fetch(`/api/areg?mode=villages&distCode=${encodeURIComponent(distCode)}&talukCode=${encodeURIComponent(talukCode)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`);
       const data = await res.json();
       if (data.success && Array.isArray(data.villages)) {
         __chittaVillagesCache[key] = data.villages;
@@ -3494,7 +3505,7 @@ async function populatePattaVillages(talukCode) {
   let vList = [];
   try {
     const creds = (typeof getTahsildarCreds === 'function') ? getTahsildarCreds() : {};
-    const res = await fetch(`/api/chitta?mode=villages&distCode=37&talukCode=${encodeURIComponent(talukCode)}&username=${encodeURIComponent(creds.username || '')}&password=${encodeURIComponent(creds.password || '')}&roleId=${encodeURIComponent(creds.roleId || '')}`);
+    const res = await fetch(`/api/areg?mode=villages&distCode=37&talukCode=${encodeURIComponent(talukCode)}&username=${encodeURIComponent(creds.username || '')}&password=${encodeURIComponent(creds.password || '')}&roleId=${encodeURIComponent(creds.roleId || '')}`);
     const data = await res.json();
     if (data.success && Array.isArray(data.villages) && data.villages.length) {
       vList = data.villages;
