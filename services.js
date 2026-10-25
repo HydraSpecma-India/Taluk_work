@@ -1664,29 +1664,60 @@ async function initChittaDropdowns() {
 
     try {
       const creds = getTahsildarCreds();
-      const url = `/api/chitta?mode=download&transType=${encodeURIComponent(transType)}&distCode=${encodeURIComponent(distCode)}&talukCode=${encodeURIComponent(talukCode)}&villageCode=${encodeURIComponent(villageCode)}&pattaNo=${encodeURIComponent(pattaNo)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`;
       
-      const res = await fetch(url);
-      const data = await res.json();
+      // Check if a saved Patta correction exists for this Patta
+      const activeCorr = (typeof findPattaCorrection === 'function')
+        ? findPattaCorrection(distCode, talukCode, villageCode, pattaNo)
+        : null;
 
-      if (!data.success || !data.base64) {
-        throw new Error(data.error || 'Failed to download Chitta PDF from Tamil Nilam portal');
-      }
+      let blob = null;
+      let filename = `Chitta_Extract_D${distCode}_T${talukCode}_V${villageCode}_Patta${pattaNo}.pdf`;
 
-      // Convert Base64 to Blob
-      const binaryString = atob(data.base64);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      if (activeCorr) {
+        // Fetch raw extract data and apply correction to build updated certificate
+        const dataUrl = `/api/chitta?mode=extract_data&transType=${encodeURIComponent(transType)}&distCode=${encodeURIComponent(distCode)}&talukCode=${encodeURIComponent(talukCode)}&villageCode=${encodeURIComponent(villageCode)}&pattaNo=${encodeURIComponent(pattaNo)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`;
+        const dRes = await fetch(dataUrl);
+        const dJson = await dRes.json();
+        let extData = (dJson && dJson.data) ? dJson.data : {};
+
+        applyCorrectionToExtractData(extData, activeCorr);
+
+        const dCode = extData.districtcode || distCode;
+        const tCode = extData.talukcode || talukCode;
+        const vCode = extData.villagecode || villageCode;
+        const serialNo = Math.floor(10000 + Math.random() * 90000);
+        const refNo = `P/${dCode}/${tCode}/${vCode}/${pattaNo.padStart(5, '0')}/${serialNo}`;
+        const verifyUrl = `https://eservices.tn.gov.in/eservicesnew/land/verify_chitta.html?refNo=${refNo}`;
+        const qrDataUrl = await getEservicesQrDataUrl(verifyUrl);
+        const { dateStr, timeStr } = getFormattedDateTimeTamil();
+
+        const htmlDoc = buildEservicesDocHtml(extData, pattaNo, qrDataUrl, refNo, dateStr, timeStr);
+        filename = `Chitta_Extract_D${distCode}_T${talukCode}_V${villageCode}_Patta${pattaNo}_Corrected.pdf`;
+        blob = await generateEservicesPdfBlob(htmlDoc);
+      } else {
+        const url = `/api/chitta?mode=download&transType=${encodeURIComponent(transType)}&distCode=${encodeURIComponent(distCode)}&talukCode=${encodeURIComponent(talukCode)}&villageCode=${encodeURIComponent(villageCode)}&pattaNo=${encodeURIComponent(pattaNo)}&username=${encodeURIComponent(creds.username)}&password=${encodeURIComponent(creds.password)}&roleId=${encodeURIComponent(creds.roleId)}`;
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.success || !data.base64) {
+          throw new Error(data.error || 'Failed to download Chitta PDF from Tamil Nilam portal');
+        }
+
+        const binaryString = atob(data.base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        blob = new Blob([bytes], { type: 'application/pdf' });
+        filename = data.filename || `Chitta_Extract_${pattaNo}.pdf`;
       }
-      const blob = new Blob([bytes], { type: 'application/pdf' });
       
       if (__chittaCurrentPdfBlobUrl) {
         URL.revokeObjectURL(__chittaCurrentPdfBlobUrl);
       }
       __chittaCurrentPdfBlobUrl = URL.createObjectURL(blob);
-      __chittaCurrentFilename = data.filename || `Chitta_Extract_${pattaNo}.pdf`;
+      __chittaCurrentFilename = filename;
 
       // Auto trigger download
       const dlLink = document.createElement('a');
@@ -1703,7 +1734,11 @@ async function initChittaDropdowns() {
         statusBox.style.background = '#ecfdf5';
         statusBox.style.color = '#065f46';
         statusBox.style.border = '1px solid #a7f3d0';
-        statusBox.innerHTML = `✓ <b>Success!</b> Chitta PDF downloaded: <b>${esc(__chittaCurrentFilename)}</b> (${kb} KB).`;
+        if (activeCorr) {
+          statusBox.innerHTML = `✓ <b>Success!</b> Chitta PDF downloaded: <b>${esc(__chittaCurrentFilename)}</b> (${kb} KB).<br><span style="color:#047857; font-weight:700;">★ Corrected Patta Name applied: <b>${esc(activeCorr.newName)}</b> (Ref: ${esc(activeCorr.applId || 'Approved')})</span>`;
+        } else {
+          statusBox.innerHTML = `✓ <b>Success!</b> Chitta PDF downloaded: <b>${esc(__chittaCurrentFilename)}</b> (${kb} KB).`;
+        }
       }
 
       toast('Chitta Downloaded', `Successfully downloaded ${__chittaCurrentFilename}`, 'ok');
@@ -2322,6 +2357,122 @@ function getFormattedDateTimeTamil() {
   const timeStr = `${pad(hours)}:${minutes}:${seconds} ${ampm}`;
 
   return { dateStr, timeStr };
+}
+
+function getPattaCorrectionsList() {
+  try {
+    const raw = localStorage.getItem('patta_corrections_list');
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) {
+    return [];
+  }
+}
+
+function savePattaCorrectionsList(list) {
+  try {
+    localStorage.setItem('patta_corrections_list', JSON.stringify(list));
+  } catch(e) {}
+}
+
+function findPattaCorrection(distCode, talukCode, villageCode, pattaNo, surveyNo, subdivNo) {
+  const list = getPattaCorrectionsList();
+  if (!list || !list.length) return null;
+  const vClean = String(villageCode || '').replace(/^0+/, '');
+  const pClean = String(pattaNo || '').trim();
+  const sClean = String(surveyNo || '').trim();
+  const subClean = String(subdivNo || '').trim();
+
+  return list.find(item => {
+    const itemV = String(item.villageCode || '').replace(/^0+/, '');
+    const itemP = String(item.pattaNo || '').trim();
+    const itemS = String(item.surveyNo || '').trim();
+    const itemSub = String(item.subdivNo || '').trim();
+
+    // Match by village + patta
+    if (vClean && itemV === vClean && pClean && itemP === pClean) return true;
+    // Match by patta alone if village matches or was default
+    if (pClean && itemP === pClean && (!vClean || !itemV || itemV === vClean)) return true;
+    // Match by village + survey + subdiv
+    if (vClean && itemV === vClean && sClean && itemS === sClean) {
+      if (!subClean || !itemSub || subClean === itemSub) return true;
+    }
+    // Match by survey + subdiv if survey is specific
+    if (sClean && itemS === sClean && subClean && itemSub && subClean === itemSub) return true;
+    return false;
+  });
+}
+
+function applyCorrectionToExtractData(extData, activeCorr) {
+  if (!extData || !activeCorr) return extData;
+  if (!extData.existingOwner_landdetails || !extData.existingOwner_landdetails.length) {
+    extData.existingOwner_landdetails = [{
+      pattano: activeCorr.pattaNo || '',
+      OWNERS: [],
+      LAND: []
+    }];
+  }
+
+  const rec = extData.existingOwner_landdetails[0];
+
+  // Apply new owner name
+  if (activeCorr.newName) {
+    const rawNew = activeCorr.newName.trim();
+    const relKeywords = ['மனைவி', 'மகன்', 'மகள்', 'கணவர்', 'தந்தை', 'தாயார்', 'உடன்பிறந்த'];
+    let matchedRel = '';
+    for (const kw of relKeywords) {
+      if (rawNew.includes(kw)) {
+        matchedRel = kw;
+        break;
+      }
+    }
+
+    if (Array.isArray(rec.OWNERS) && rec.OWNERS.length) {
+      if (matchedRel) {
+        const parts = rawNew.split(matchedRel).map(s => s.trim()).filter(Boolean);
+        rec.OWNERS[0].owner_unicode = parts[0] || rawNew;
+        rec.OWNERS[0].reln_desc = matchedRel;
+        rec.OWNERS[0].relative_unicode = parts[1] || '';
+      } else {
+        rec.OWNERS[0].owner_unicode = rawNew;
+        rec.OWNERS[0].reln_desc = '';
+        rec.OWNERS[0].relative_unicode = '';
+      }
+    } else {
+      rec.OWNERS = [{
+        own_num: 1,
+        owner_unicode: rawNew,
+        reln_desc: matchedRel || '',
+        relative_unicode: ''
+      }];
+    }
+  }
+
+  // Apply new extent
+  if (activeCorr.newExtent) {
+    const cleanExt = String(activeCorr.newExtent).replace(/[^\d.]/g, '');
+    const extParts = cleanExt.split('.');
+    if (Array.isArray(rec.LAND) && rec.LAND.length) {
+      rec.LAND[0].ext_hect = extParts[0] || '0';
+      rec.LAND[0].ext_ares = extParts[1] || '00';
+    } else {
+      rec.LAND = [{
+        surveyno: activeCorr.surveyNo || '',
+        subdivno: activeCorr.subdivNo || '',
+        ext_hect: extParts[0] || '0',
+        ext_ares: extParts[1] || '00',
+        tot_tax: '2.00',
+        orderno: activeCorr.applId || '',
+        landtype: '9',
+        DistFlag: 'N'
+      }];
+    }
+  }
+
+  if (activeCorr.applId && Array.isArray(rec.LAND) && rec.LAND.length) {
+    rec.LAND[0].orderno = activeCorr.applId;
+  }
+
+  return extData;
 }
 
 // Build exact HTML matching the user reference image (media_1789207495203.png)
@@ -3073,8 +3224,18 @@ async function initEservicesDropdowns() {
         console.warn('Extract data fetch warning:', eData);
       }
 
+      // Check if a saved Patta correction exists for this Patta
+      const activeCorr = (typeof findPattaCorrection === 'function')
+        ? findPattaCorrection(distCode, talukCode, villageCode, pattaNo)
+        : null;
+
+      if (activeCorr) {
+        if (!extData) extData = {};
+        applyCorrectionToExtractData(extData, activeCorr);
+      }
+
       let pdfBlob = null;
-      let filename = `Chitta_eServices_${pattaNo}.pdf`;
+      let filename = `Chitta_eServices_${pattaNo}${activeCorr ? '_Corrected' : ''}.pdf`;
 
       if (extData && extData.existingOwner_landdetails) {
         const dCode = extData.districtcode || distCode;
@@ -3133,7 +3294,11 @@ async function initEservicesDropdowns() {
         statusBox.style.background = '#ecfdf5';
         statusBox.style.color = '#065f46';
         statusBox.style.border = '1px solid #6ee7b7';
-        statusBox.innerHTML = `✓ <b>வெற்றி (Success)!</b> அதிகாரப்பூர்வ e-Services சிட்டா PDF பதிவிறக்கப்பட்டது: <b>${esc(__eservCurrentFilename)}</b> (${kb} KB) — அசல் e-Services வடிவம்.`;
+        if (activeCorr) {
+          statusBox.innerHTML = `✓ <b>வெற்றி (Success)!</b> அதிகாரப்பூர்வ e-Services சிட்டா PDF தயார்: <b>${esc(__eservCurrentFilename)}</b> (${kb} KB)<br><span style="color:#047857; font-weight:700;">★ திருத்தப்பட்ட பட்டா பெயர் சான்றிதழில் இணைக்கப்பட்டுள்ளது: <b>${esc(activeCorr.newName)}</b> (Ref: ${esc(activeCorr.applId || 'Approved')})</span>`;
+        } else {
+          statusBox.innerHTML = `✓ <b>வெற்றி (Success)!</b> அதிகாரப்பூர்வ e-Services சிட்டா PDF பதிவிறக்கப்பட்டது: <b>${esc(__eservCurrentFilename)}</b> (${kb} KB) — அசல் e-Services வடிவம்.`;
+        }
       }
 
       toast('e-Services PDF பெறப்பட்டது', `${__eservCurrentFilename} (${kb} KB)`, 'ok');
@@ -3450,7 +3615,18 @@ async function fetchLivePattaInfo() {
       const pattaNoInp = document.getElementById('pattaNoInput');
       if (pattaNoInp) pattaNoInp.value = data.pattaNo;
 
-      const bannerMsg = '✓ Live Patta details fetched: ' + data.ownerName + ' | Extent: ' + data.totalExtent + ' (Survey: ' + data.surveyNo + '/' + data.subdivNo + ')';
+      const activeCorr = (typeof findPattaCorrection === 'function')
+        ? findPattaCorrection(distCode, talukCode, villageCode, pattaNo, surveyNo, subdivNo)
+        : null;
+      if (activeCorr) {
+        if (activeCorr.newName) data.ownerName = activeCorr.newName;
+        if (activeCorr.newExtent) data.totalExtent = activeCorr.newExtent;
+        if (oldNameInp) oldNameInp.value = activeCorr.newName;
+        if (oldExtentInp) oldExtentInp.value = activeCorr.newExtent;
+      }
+      const bannerMsg = activeCorr
+        ? '✓ Live Patta details fetched: ' + data.ownerName + ' | Extent: ' + data.totalExtent + ' (Saved Correction Applied ★)'
+        : '✓ Live Patta details fetched: ' + data.ownerName + ' | Extent: ' + data.totalExtent + ' (Survey: ' + data.surveyNo + '/' + data.subdivNo + ')';
       if (banner) {
         banner.className = 'tn-status-banner success';
         banner.style.background = 'rgba(34, 197, 94, 0.15)';
@@ -3487,20 +3663,7 @@ async function fetchLivePattaInfo() {
 }
 window.findPattaInStore = findPattaInStore;
 
-function getPattaCorrectionsList() {
-  try {
-    const raw = localStorage.getItem('patta_corrections_list');
-    return raw ? JSON.parse(raw) : [];
-  } catch(e) {
-    return [];
-  }
-}
 
-function savePattaCorrectionsList(list) {
-  try {
-    localStorage.setItem('patta_corrections_list', JSON.stringify(list));
-  } catch(e) {}
-}
 
 async function populatePattaVillages(talukCode) {
   const vSel = document.getElementById('pattaVillageSel');
@@ -3570,8 +3733,8 @@ function renderPattaTable() {
           <div style="display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: center;">
             <button type="button" onclick="editPattaCorrectionRow(${idx})" style="background: #2563eb; color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">✏️ Edit</button>
             <button type="button" onclick="submitPattaCorrectionRow(${idx})" style="background: #16a34a; color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">⚡ Change</button>
-            <button type="button" onclick="verifyPattaInChitta(${idx})" title="Jump to Chitta Extract to verify live status" style="background: #0891b2; color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">📜 Verify in Chitta Extract</button>
-            <button type="button" onclick="verifyPattaInChitta(${idx}, true)" title="Download Live Chitta PDF" style="background: #0284c7; color: #fff; border: none; border-radius: 5px; padding: 4px 7px; font-size: 11px; font-weight: 600; cursor: pointer;">⬇️ PDF</button>
+            <button type="button" onclick="verifyPattaInChitta(${idx})" title="View Official Patta with Corrected Name in e-Services" style="background: linear-gradient(135deg, #0e7490, #155e75); color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">📜 View Corrected Patta</button>
+            <button type="button" onclick="verifyPattaInChitta(${idx}, true)" title="Download Corrected Patta PDF" style="background: #0284c7; color: #fff; border: none; border-radius: 5px; padding: 4px 7px; font-size: 11px; font-weight: 700; cursor: pointer;">⬇️ PDF</button>
             <button type="button" onclick="deletePattaCorrectionRow(${idx})" style="background: #ef4444; color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">🗑️ Delete</button>
           </div>
         </td>
@@ -3620,49 +3783,37 @@ async function verifyPattaInChitta(itemOrIdx, autoDownload = false) {
   }
 
   if (typeof openUsersPanel === 'function') openUsersPanel();
-  if (typeof window !== 'undefined') window.ADMIN_TAB = 'chitta';
-  ADMIN_TAB = 'chitta';
+  if (typeof window !== 'undefined') window.ADMIN_TAB = 'eservices';
+  ADMIN_TAB = 'eservices';
   if (typeof renderAdminTabs === 'function') renderAdminTabs();
 
   setTimeout(async () => {
-    const distSel = document.getElementById('chittaDist');
-    const talukSel = document.getElementById('chittaTaluk');
-    const villageSel = document.getElementById('chittaVillage');
-    const typeSel = document.getElementById('chittaType');
-    const pattaInp = document.getElementById('chittaPattaNo');
+    const distSel = document.getElementById('eservDist');
+    const talukSel = document.getElementById('eservTaluk');
+    const villageSel = document.getElementById('eservVillage');
+    const pattaInp = document.getElementById('eservPattaNo');
+    const landTypeRadio = document.querySelector(`input[name="eservLandType"][value="${item.landType || 'N'}"]`);
+    if (landTypeRadio) landTypeRadio.checked = true;
 
     if (distSel) distSel.value = '37';
-    if (typeSel && item.landType) typeSel.value = item.landType;
     if (pattaInp && item.pattaNo) pattaInp.value = item.pattaNo;
 
     const tCode = item.talukCode || '12';
     if (talukSel) {
       talukSel.value = tCode;
-      if (typeof populateVillages === 'function') {
-        await populateVillages('37', tCode);
+      if (typeof populateEservicesVillages === 'function') {
+        await populateEservicesVillages('37', tCode);
       }
       if (villageSel && item.villageCode) {
         villageSel.value = String(item.villageCode).padStart(3, '0');
       }
-      const bannerLoc = document.getElementById('chittaBannerLoc');
-      if (bannerLoc) {
-        const dTxt = distSel?.options[distSel.selectedIndex]?.text || 'Ranipet';
-        const tTxt = talukSel?.options[talukSel.selectedIndex]?.text || item.talukName || 'Nemili';
-        bannerLoc.textContent = `District: ${dTxt} | Taluk: ${tTxt}`;
-      }
     }
 
-    if (autoDownload) {
-      const fetchBtn = document.getElementById('chittaFetchBtn');
-      if (fetchBtn) {
-        fetchBtn.click();
-      }
-    } else {
-      if (typeof toast === 'function') {
-        toast('Chitta Extract', `Switched to Chitta Extract for Patta ${item.pattaNo}. Click 'Get Details & Download PDF' to verify.`, 'ok');
-      }
+    const submitBtn = document.getElementById('eservSubmitBtn');
+    if (submitBtn) {
+      submitBtn.click();
     }
-  }, 150);
+  }, 200);
 }
 
 async function submitPattaCorrectionToTamilNilam(item, btnElement) {
