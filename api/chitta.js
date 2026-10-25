@@ -269,14 +269,31 @@ module.exports = async (req, res) => {
         transType: transType
       };
 
-      const data = await callTnPortalWithRetry(
+      let data = await callTnPortalWithRetry(
         'Master/getChittaExtractData',
         inputValObj,
         creds,
-        'POST',
-        { 'Content-Type': 'application/json' },
-        JSON.stringify(inputValObj)
+        'GET'
       );
+
+      // Auto-detect: if no land details found with primary transType, try alternate (Natham <-> Rural)
+      if ((!data || !data.existingOwner_landdetails || data.existingOwner_landdetails.length === 0) && !data.base64Output) {
+        const altType = transType === 'R' ? 'N' : 'R';
+        const altInput = { ...inputValObj, txnType: altType, transType: altType };
+        try {
+          const altData = await callTnPortalWithRetry(
+            'Master/getChittaExtractData',
+            altInput,
+            creds,
+            'GET'
+          );
+          if (altData && altData.existingOwner_landdetails && altData.existingOwner_landdetails.length > 0) {
+            data = altData;
+          }
+        } catch (eAlt) {
+          console.warn('extract_data alt error:', eAlt.message);
+        }
+      }
 
       return res.status(200).json({
         success: true,
@@ -294,12 +311,12 @@ module.exports = async (req, res) => {
       const talukCode = String(params.talukCode || '12').padStart(2, '0');
       const villageCode = String(params.villageCode || '045').padStart(3, '0');
       const pattaNo = String(params.pattaNo || '').trim();
-      const surveyNo = params.surveyNo ? String(params.surveyNo).trim() : '@';
-      const subdivNo = params.subdivNo ? String(params.subdivNo).trim() : '@';
+      const surveyNo = params.surveyNo ? String(params.surveyNo).trim() : '';
+      const subdivNo = params.subdivNo ? String(params.subdivNo).trim() : '';
       const transType = (params.transType || 'R').toUpperCase();
       const isBinary = String(params.binary || '').toLowerCase() === 'true';
 
-      if (!pattaNo && surveyNo === '@') {
+      if (!pattaNo && (!surveyNo || surveyNo === '@')) {
         return res.status(400).json({ success: false, error: 'Patta number or Survey number is required' });
       }
 
@@ -307,13 +324,20 @@ module.exports = async (req, res) => {
         districtCode: distCode,
         talukCode: talukCode,
         villageCode: villageCode,
-        pattaNo: pattaNo || '@',
-        PattaNo: pattaNo || '@',
-        SurveyNo: surveyNo,
-        SubDivNo: subdivNo,
         txnType: transType,
         transType: transType
       };
+
+      if (pattaNo) {
+        inputValObj.pattaNo = pattaNo;
+        inputValObj.PattaNo = pattaNo;
+      }
+      if (surveyNo && surveyNo !== '@') {
+        inputValObj.SurveyNo = surveyNo;
+      }
+      if (subdivNo && subdivNo !== '@') {
+        inputValObj.SubDivNo = subdivNo;
+      }
 
       const hasPdf = (d) => {
         if (!d) return false;
@@ -336,26 +360,26 @@ module.exports = async (req, res) => {
         console.warn('getChittaExtractData_pdf GET error:', e1.message);
       }
 
-      // 2. Try Master/getARegExtractData_PDF (POST) - Official live A-Reg / Chitta PDF endpoint
+      // If no PDF found with primary transType, try alternate transType (Natham <-> Rural)
       if (!hasPdf(data)) {
         try {
-          const fallbackData = await callTnPortalWithRetry(
-            'Master/getARegExtractData_PDF',
-            inputValObj,
+          const altType = transType === 'R' ? 'N' : 'R';
+          const altInput = { ...inputValObj, txnType: altType, transType: altType };
+          const altData = await callTnPortalWithRetry(
+            'Master/getChittaExtractData_pdf',
+            altInput,
             creds,
-            'POST',
-            { 'Content-Type': 'application/json' },
-            JSON.stringify(inputValObj)
+            'GET'
           );
-          if (hasPdf(fallbackData)) {
-            data = fallbackData;
+          if (hasPdf(altData)) {
+            data = altData;
           }
-        } catch (e2) {
-          console.warn('getARegExtractData_PDF fallback error:', e2.message);
+        } catch (eAlt) {
+          console.warn('getChittaExtractData_pdf alt error:', eAlt.message);
         }
       }
 
-      // 3. Try Master/getChittaExtractDataPdf (GET)
+      // 2. Try Master/getChittaExtractDataPdf (GET)
       if (!hasPdf(data)) {
         try {
           const fallbackData2 = await callTnPortalWithRetry(
@@ -367,27 +391,33 @@ module.exports = async (req, res) => {
           if (hasPdf(fallbackData2)) {
             data = fallbackData2;
           }
-        } catch (e3) {
-          console.warn('getChittaExtractDataPdf fallback error:', e3.message);
+        } catch (e2) {
+          console.warn('getChittaExtractDataPdf fallback error:', e2.message);
         }
       }
 
-      // 4. Try Master/getARegExtractDataPdf (POST)
-      if (!hasPdf(data)) {
+      // 3. Fallback: only if surveyNo was specifically supplied and no Chitta PDF was returned, try getARegExtractData_PDF
+      if (!hasPdf(data) && surveyNo && surveyNo !== '@') {
         try {
+          const aregInput = {
+            ...inputValObj,
+            SurveyNo: surveyNo,
+            SubDivNo: subdivNo || '@',
+            PattaNo: pattaNo || '@'
+          };
           const fallbackData3 = await callTnPortalWithRetry(
-            'Master/getARegExtractDataPdf',
-            inputValObj,
+            'Master/getARegExtractData_PDF',
+            aregInput,
             creds,
             'POST',
             { 'Content-Type': 'application/json' },
-            JSON.stringify(inputValObj)
+            JSON.stringify(aregInput)
           );
           if (hasPdf(fallbackData3)) {
             data = fallbackData3;
           }
-        } catch (e4) {
-          console.warn('getARegExtractDataPdf fallback error:', e4.message);
+        } catch (e3) {
+          console.warn('getARegExtractData_PDF fallback error:', e3.message);
         }
       }
 
