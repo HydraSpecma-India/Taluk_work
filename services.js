@@ -108,7 +108,7 @@ let TALUK_CREDS = [];
 async function loadTalukCredsFromCloud() {
   if (!sb) return [];
   try {
-    const { data, error } = await sb.from('taluk_credentials').select('*');
+    const { data, error } = await sb.from('isd_taluk_credentials').select('*').order('taluk_code');
     if (!error && Array.isArray(data)) {
       TALUK_CREDS = data;
       window.TALUK_CREDS = TALUK_CREDS;
@@ -189,6 +189,31 @@ function saveAllTnCreds(primaryObj, secondaryObj) {
   } catch(e) {}
 }
 window.saveAllTnCreds = saveAllTnCreds;
+
+function canViewCreds(){
+  if(!CLOUD_ON) return true;
+  if(!ME) return false;
+  if(ME.role === 'admin') return true;
+  return ME.can_view_creds === true;
+}
+window.canViewCreds = canViewCreds;
+
+function canUpdateCreds(){
+  if(!CLOUD_ON) return true;
+  if(!ME) return false;
+  if(ME.role === 'admin') return true;
+  return ME.can_update_creds === true;
+}
+window.canUpdateCreds = canUpdateCreds;
+
+function canManageCreds(){
+  if(!CLOUD_ON) return true;
+  if(!ME) return false;
+  if(ME.role === 'admin') return true;
+  return ME.can_view_creds === true || ME.can_update_creds === true;
+}
+window.canManageCreds = canManageCreds;
+
 
 /* ---------- Service Menu Access ---------- */
 const ALL_MENUS = [
@@ -1103,7 +1128,7 @@ async function renderTnCredsTab() {
       if (st) { st.style.color = '#3b82f6'; st.textContent = '⏳ Testing connection...'; }
 
       try {
-        const res = await fetch(`/api/nisd-rural?mode=taluks&distCode=37&username=${encodeURIComponent(u)}&password=${encodeURIComponent(p)}&roleId=${encodeURIComponent(r)}`);
+        const res = await fetch(`/api/areg?mode=taluks&distCode=37&username=${encodeURIComponent(u)}&password=${encodeURIComponent(p)}&roleId=${encodeURIComponent(r)}`);
         const data = await res.json();
         if (data.success && Array.isArray(data.taluks)) {
           if (st) { st.style.color = '#10b981'; st.textContent = `✓ Connected! (${data.taluks.length} taluks found)`; }
@@ -1225,7 +1250,7 @@ async function renderTnCredsTab() {
       if (st) { st.style.color = '#3b82f6'; st.textContent = '⏳ Testing connection...'; }
 
       try {
-        const res = await fetch(`/api/nisd-rural?mode=taluks&distCode=37&username=${encodeURIComponent(u)}&password=${encodeURIComponent(p)}&roleId=${encodeURIComponent(r)}`);
+        const res = await fetch(`/api/areg?mode=taluks&distCode=37&username=${encodeURIComponent(u)}&password=${encodeURIComponent(p)}&roleId=${encodeURIComponent(r)}`);
         const data = await res.json();
         if (data.success && Array.isArray(data.taluks)) {
           if (st) { st.style.color = '#10b981'; st.textContent = `✓ Connected! (${data.taluks.length} taluks found)`; }

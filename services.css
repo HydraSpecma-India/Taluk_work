@@ -1923,3 +1923,41 @@ html[data-theme="dark"] .nav-tab.active {
   opacity: 0;
   transform: translateY(-8px);
 }
+
+
+/* Topbar switcher button fix */
+.topbar-controls .switch-btn,
+.topbar-controls .app-switch-btn,
+#reportsSwitcherBtn {
+  width: auto !important;
+  min-width: auto !important;
+  height: 34px !important;
+  padding: 0 14px !important;
+  line-height: 34px !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  box-sizing: border-box !important;
+}
+
+.nav-bar {
+  scrollbar-width: thin;
+}
+.nav-bar::-webkit-scrollbar {
+  height: 3px !important;
+}
+.nav-bar::-webkit-scrollbar-thumb {
+  background: var(--line-2) !important;
+  border-radius: 3px !important;
+}
+.nav-tab {
+  padding: 10px 13px !important;
+  font-size: 12.5px !important;
+}
+.nav-tab span {
+  font-size: 16px !important;
+}
