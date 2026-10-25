@@ -123,9 +123,9 @@ function callTnPortal(servicePath, inputObj, userId = DEFAULT_U, password = DEFA
 // Multi-login retry runner: tries requested credentials first, then Nemili Tahsildar, then District user
 async function callTnPortalWithRetry(servicePath, inputObj, primaryCreds, method = 'GET', extraHeaders = {}, customBody = null, timeoutMs = 25000) {
   const candidates = [
+    { username: FALLBACK_U, password: FALLBACK_P, roleId: FALLBACK_R },
     { username: primaryCreds.username || DEFAULT_U, password: primaryCreds.password || DEFAULT_P, roleId: primaryCreds.roleId || DEFAULT_R },
-    { username: DEFAULT_U, password: DEFAULT_P, roleId: DEFAULT_R },
-    { username: FALLBACK_U, password: FALLBACK_P, roleId: FALLBACK_R }
+    { username: DEFAULT_U, password: DEFAULT_P, roleId: DEFAULT_R }
   ];
 
   const seen = new Set();
@@ -294,42 +294,115 @@ module.exports = async (req, res) => {
       const talukCode = String(params.talukCode || '12').padStart(2, '0');
       const villageCode = String(params.villageCode || '045').padStart(3, '0');
       const pattaNo = String(params.pattaNo || '').trim();
+      const surveyNo = params.surveyNo ? String(params.surveyNo).trim() : '@';
+      const subdivNo = params.subdivNo ? String(params.subdivNo).trim() : '@';
       const transType = (params.transType || 'R').toUpperCase();
       const isBinary = String(params.binary || '').toLowerCase() === 'true';
 
-      if (!pattaNo) {
-        return res.status(400).json({ success: false, error: 'Patta number is required' });
+      if (!pattaNo && surveyNo === '@') {
+        return res.status(400).json({ success: false, error: 'Patta number or Survey number is required' });
       }
 
       const inputValObj = {
         districtCode: distCode,
         talukCode: talukCode,
         villageCode: villageCode,
-        pattaNo: pattaNo,
+        pattaNo: pattaNo || '@',
+        PattaNo: pattaNo || '@',
+        SurveyNo: surveyNo,
+        SubDivNo: subdivNo,
         txnType: transType,
         transType: transType
       };
 
-      const data = await callTnPortalWithRetry(
-        'Master/getChittaExtractData',
-        inputValObj,
-        creds,
-        'POST',
-        { 'Content-Type': 'application/json' },
-        JSON.stringify(inputValObj)
-      );
+      const hasPdf = (d) => {
+        if (!d) return false;
+        const obj = Array.isArray(d) ? d[0] : d;
+        const b = obj && (obj.base64Output || obj.pdffile || obj.base64);
+        return Boolean(b && typeof b === 'string' && b.length > 100);
+      };
 
-      const base64Data = (data && (data.base64Output || data.pdffile || data.base64)) || '';
+      let data = null;
 
-      if (!base64Data) {
+      // 1. Try Master/getChittaExtractData_pdf (GET) - Official live Chitta PDF endpoint
+      try {
+        data = await callTnPortalWithRetry(
+          'Master/getChittaExtractData_pdf',
+          inputValObj,
+          creds,
+          'GET'
+        );
+      } catch (e1) {
+        console.warn('getChittaExtractData_pdf GET error:', e1.message);
+      }
+
+      // 2. Try Master/getARegExtractData_PDF (POST) - Official live A-Reg / Chitta PDF endpoint
+      if (!hasPdf(data)) {
+        try {
+          const fallbackData = await callTnPortalWithRetry(
+            'Master/getARegExtractData_PDF',
+            inputValObj,
+            creds,
+            'POST',
+            { 'Content-Type': 'application/json' },
+            JSON.stringify(inputValObj)
+          );
+          if (hasPdf(fallbackData)) {
+            data = fallbackData;
+          }
+        } catch (e2) {
+          console.warn('getARegExtractData_PDF fallback error:', e2.message);
+        }
+      }
+
+      // 3. Try Master/getChittaExtractDataPdf (GET)
+      if (!hasPdf(data)) {
+        try {
+          const fallbackData2 = await callTnPortalWithRetry(
+            'Master/getChittaExtractDataPdf',
+            inputValObj,
+            creds,
+            'GET'
+          );
+          if (hasPdf(fallbackData2)) {
+            data = fallbackData2;
+          }
+        } catch (e3) {
+          console.warn('getChittaExtractDataPdf fallback error:', e3.message);
+        }
+      }
+
+      // 4. Try Master/getARegExtractDataPdf (POST)
+      if (!hasPdf(data)) {
+        try {
+          const fallbackData3 = await callTnPortalWithRetry(
+            'Master/getARegExtractDataPdf',
+            inputValObj,
+            creds,
+            'POST',
+            { 'Content-Type': 'application/json' },
+            JSON.stringify(inputValObj)
+          );
+          if (hasPdf(fallbackData3)) {
+            data = fallbackData3;
+          }
+        } catch (e4) {
+          console.warn('getARegExtractDataPdf fallback error:', e4.message);
+        }
+      }
+
+      const resObj = Array.isArray(data) ? (data[0] || {}) : (data || {});
+      const base64Data = (resObj && (resObj.base64Output || resObj.pdffile || resObj.base64)) || '';
+
+      if (!base64Data || typeof base64Data !== 'string' || base64Data.length < 100) {
         return res.status(200).json({
           success: false,
-          error: 'No PDF base64 received from Tamil Nilam portal.',
+          error: resObj.Status_Desc || resObj.IssuePatta || resObj.Issue || 'No PDF base64 received from Tamil Nilam portal.',
           portalResponse: data
         });
       }
 
-      const filename = `Chitta_Extract_D${distCode}_T${talukCode}_V${villageCode}_Patta${pattaNo}.pdf`;
+      const filename = `Chitta_Extract_D${distCode}_T${talukCode}_V${villageCode}_Patta${pattaNo || 'Survey' + surveyNo}.pdf`;
 
       if (isBinary) {
         const pdfBuf = Buffer.from(base64Data, 'base64');
@@ -345,6 +418,7 @@ module.exports = async (req, res) => {
         talukCode,
         villageCode,
         pattaNo,
+        surveyNo,
         transType,
         base64: base64Data
       });

@@ -1581,61 +1581,89 @@ module.exports = async (req, res) => {
         transType: (transType || 'R').toUpperCase()
       };
 
-      let data = null;
-      try {
-        data = await callTnService(
-          'Master/getARegExtractData_PDF',
-          inputValObj,
-          'POST',
-          username,
-          password,
-          roleId
-        );
-      } catch (errPdf) {
-        console.warn('getARegExtractData_PDF error:', errPdf.message);
-      }
+      const candidateCreds = params.username
+        ? [
+            { u: username, p: password, r: roleId },
+            { u: FALLBACK_U, p: FALLBACK_P, r: FALLBACK_R },
+            { u: DEFAULT_U, p: DEFAULT_P, r: DEFAULT_R }
+          ]
+        : [
+            { u: FALLBACK_U, p: FALLBACK_P, r: FALLBACK_R },
+            { u: DEFAULT_U, p: DEFAULT_P, r: DEFAULT_R }
+          ];
+      const uniqueCreds = candidateCreds.filter((c, idx, arr) => arr.findIndex(x => x.u === c.u && x.p === c.p && x.r === c.r) === idx);
 
       const hasPdf = (d) => {
         if (!d) return false;
         const obj = Array.isArray(d) ? d[0] : d;
-        return Boolean(obj && (obj.base64Output || obj.pdffile || obj.base64));
+        const b = obj && (obj.base64Output || obj.pdffile || obj.base64);
+        return Boolean(b && typeof b === 'string' && b.length > 100);
       };
 
-      // Fallback 1: try 'Master/getARegExtractDataPdf'
-      if (!hasPdf(data)) {
+      let data = null;
+
+      for (const cred of uniqueCreds) {
+        // Step 1: Try Master/getARegExtractData_PDF (POST)
         try {
-          const fallbackData = await callTnService(
-            'Master/getARegExtractDataPdf',
+          const resPdf = await callTnService(
+            'Master/getARegExtractData_PDF',
             inputValObj,
             'POST',
-            username,
-            password,
-            roleId
+            cred.u,
+            cred.p,
+            cred.r,
+            {},
+            null,
+            12000
           );
-          if (hasPdf(fallbackData)) {
-            data = fallbackData;
+          if (hasPdf(resPdf)) {
+            data = resPdf;
+            break;
           }
-        } catch (errFallback) {
-          console.warn('getARegExtractDataPdf fallback error:', errFallback.message);
+        } catch (errPdf) {
+          console.warn(`getARegExtractData_PDF (cred=${cred.u}) error:`, errPdf.message);
         }
-      }
 
-      // Fallback 2: try 'Master/getChittaExtractData_pdf'
-      if (!hasPdf(data)) {
+        // Step 2: Try Master/getChittaExtractData_pdf (GET)
         try {
-          const fallbackData2 = await callTnService(
+          const resChittaPdf = await callTnService(
             'Master/getChittaExtractData_pdf',
             inputValObj,
             'GET',
-            username,
-            password,
-            roleId
+            cred.u,
+            cred.p,
+            cred.r,
+            {},
+            null,
+            12000
           );
-          if (hasPdf(fallbackData2)) {
-            data = fallbackData2;
+          if (hasPdf(resChittaPdf)) {
+            data = resChittaPdf;
+            break;
           }
-        } catch (errFallback2) {
-          console.warn('getChittaExtractData_pdf fallback error:', errFallback2.message);
+        } catch (errChittaPdf) {
+          console.warn(`getChittaExtractData_pdf (cred=${cred.u}) error:`, errChittaPdf.message);
+        }
+
+        // Step 3: Try Master/getARegExtractDataPdf (POST)
+        try {
+          const resFallback = await callTnService(
+            'Master/getARegExtractDataPdf',
+            inputValObj,
+            'POST',
+            cred.u,
+            cred.p,
+            cred.r,
+            {},
+            null,
+            12000
+          );
+          if (hasPdf(resFallback)) {
+            data = resFallback;
+            break;
+          }
+        } catch (errFallback) {
+          console.warn(`getARegExtractDataPdf (cred=${cred.u}) error:`, errFallback.message);
         }
       }
 
@@ -1644,7 +1672,7 @@ module.exports = async (req, res) => {
       const sNoClean = (surveyNo && String(surveyNo).trim() !== '@') ? String(surveyNo).trim() : (inputValObj.SurveyNo !== '@' ? inputValObj.SurveyNo : '100');
       const filename = params.filename || `Areg_Extract_D${inputValObj.districtCode}_T${inputValObj.talukCode}_V${inputValObj.villageCode}_Survey${sNoClean}.pdf`;
 
-      if (pdfBase64) {
+      if (pdfBase64 && typeof pdfBase64 === 'string' && pdfBase64.length > 100) {
         if (params.binary === 'true' || params.download === '1') {
           const pdfBuf = Buffer.from(pdfBase64, 'base64');
           res.setHeader('Content-Type', 'application/pdf');
@@ -1661,7 +1689,7 @@ module.exports = async (req, res) => {
         });
       }
 
-      const errMsg = resObj.Status_Desc || resObj.error || resObj.IssuePatta || 'Failed to fetch A-Register PDF from Tamil Nilam portal';
+      const errMsg = resObj.Status_Desc || resObj.error || resObj.IssuePatta || resObj.Issue || 'No PDF base64 received from Tamil Nilam portal.';
       return res.status(200).json({ success: false, error: errMsg, raw: data });
     }
 

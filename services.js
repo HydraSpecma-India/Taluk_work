@@ -1487,19 +1487,18 @@ async function initChittaDropdowns() {
 
   const getTahsildarCreds = () => {
     const activeTaluk = talukSel?.options[talukSel.selectedIndex]?.text || '';
-    const isAdmin = !CLOUD_ON || (ME && ME.role === 'admin');
-    if (isAdmin) {
-      return {
-        username: 'rpt_panneerselvam',
-        password: 'Nemili@1970',
-        roleId: '8'
-      };
+    const prim = (typeof getTnCreds === 'function') ? getTnCreds('primary', activeTaluk) : null;
+    if (prim && prim.username && prim.password) {
+      return prim;
     }
-    const sec = (typeof getTnCreds === 'function') ? getTnCreds('secondary', activeTaluk) : {};
+    const sec = (typeof getTnCreds === 'function') ? getTnCreds('secondary', activeTaluk) : null;
+    if (sec && sec.username && sec.password) {
+      return sec;
+    }
     return {
-      username: sec?.username || 'rpt_panneerselvam',
-      password: sec?.password || 'Nemili@1970',
-      roleId: sec?.roleId || '8'
+      username: 'dlurpet',
+      password: '16-03-1992',
+      roleId: '7'
     };
   };
 
@@ -1957,19 +1956,18 @@ async function initAregPdfDropdowns() {
 
   const getTahsildarCreds = () => {
     const activeTaluk = talukSel?.options[talukSel.selectedIndex]?.text || '';
-    const isAdmin = !CLOUD_ON || (ME && ME.role === 'admin');
-    if (isAdmin) {
-      return {
-        username: 'rpt_panneerselvam',
-        password: 'Nemili@1970',
-        roleId: '8'
-      };
+    const prim = (typeof getTnCreds === 'function') ? getTnCreds('primary', activeTaluk) : null;
+    if (prim && prim.username && prim.password) {
+      return prim;
     }
-    const sec = (typeof getTnCreds === 'function') ? getTnCreds('secondary', activeTaluk) : {};
+    const sec = (typeof getTnCreds === 'function') ? getTnCreds('secondary', activeTaluk) : null;
+    if (sec && sec.username && sec.password) {
+      return sec;
+    }
     return {
-      username: sec?.username || 'rpt_panneerselvam',
-      password: sec?.password || 'Nemili@1970',
-      roleId: sec?.roleId || '8'
+      username: 'dlurpet',
+      password: '16-03-1992',
+      roleId: '7'
     };
   };
 
@@ -2858,19 +2856,18 @@ async function initEservicesDropdowns() {
 
   const getTahsildarCreds = () => {
     const activeTaluk = talukSel?.options[talukSel.selectedIndex]?.text || '';
-    const isAdmin = !CLOUD_ON || (ME && ME.role === 'admin');
-    if (isAdmin) {
-      return {
-        username: 'rpt_panneerselvam',
-        password: 'Nemili@1970',
-        roleId: '8'
-      };
+    const prim = (typeof getTnCreds === 'function') ? getTnCreds('primary', activeTaluk) : null;
+    if (prim && prim.username && prim.password) {
+      return prim;
     }
-    const sec = (typeof getTnCreds === 'function') ? getTnCreds('secondary', activeTaluk) : {};
+    const sec = (typeof getTnCreds === 'function') ? getTnCreds('secondary', activeTaluk) : null;
+    if (sec && sec.username && sec.password) {
+      return sec;
+    }
     return {
-      username: sec?.username || 'rpt_panneerselvam',
-      password: sec?.password || 'Nemili@1970',
-      roleId: sec?.roleId || '8'
+      username: 'dlurpet',
+      password: '16-03-1992',
+      roleId: '7'
     };
   };
 
