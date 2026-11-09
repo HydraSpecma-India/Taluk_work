@@ -1700,9 +1700,30 @@ module.exports = async (req, res) => {
         isValid: true
       });
 
-      const finalStatus = isUploadOrder
-        ? '✓ Order Copy Uploaded & Server Force Mutated'
-        : '✓ Approved & Order Copy Ready';
+      const isPortalMutated = Boolean(
+        approvalResult &&
+        (approvalResult.OrderNo || approvalResult.orderNo || (Array.isArray(approvalResult) && approvalResult.length > 0 && approvalResult[0].OrderNo))
+      );
+
+      let finalStatus = '📋 Statutory Order Issued (Ready for Portal Upload)';
+      let finalOrderStatus = 'Statutory Order Generated & Ready for Portal Upload';
+      let finalMessage = `✓ Statutory Tahsildar Order Copy generated under Reference ${generatedAppId}.`;
+
+      if (isPortalMutated) {
+        finalStatus = '✓ Mutated on Tamil Nilam Server';
+        finalOrderStatus = 'Mutated on Tamil Nilam Government Database';
+        finalMessage = `✓ Patta records mutated on Tamil Nilam government portal under Application ${generatedAppId}.`;
+      } else if (isUploadOrder) {
+        if (userProvidedAppId) {
+          finalStatus = '⚠️ Order Copy Generated (Application Not Pending on Server)';
+          finalOrderStatus = 'Application ID not in pending Tahsildar approval queue on Tamil Nilam';
+          finalMessage = `Application ${generatedAppId} is not in the live Tahsildar pending queue on Tamil Nilam. Order Copy generated; please upload via portal PattaOrder_vs.html.`;
+        } else {
+          finalStatus = '📋 Statutory Order Copy Issued (Unregistered Application)';
+          finalOrderStatus = 'Application Number not registered on government portal';
+          finalMessage = `Reference ${generatedAppId} was auto-generated. To mutate the live Tamil Nilam database, please enter an official Application Number (Form 6 No) from Tamil Nilam or upload this order copy in PattaOrder_vs.html.`;
+        }
+      }
 
       // Return full structured details
       res.status(200).json({
@@ -1712,11 +1733,10 @@ module.exports = async (req, res) => {
         orderNo: orderNo,
         orderDate: orderDate,
         status: finalStatus,
-        orderStatus: isUploadOrder ? 'Order Copy Uploaded / Server Force Mutated' : 'Order Copy Generated & Ready for Portal Upload',
+        orderStatus: finalOrderStatus,
+        isPortalMutated: isPortalMutated,
         orderHtml: orderCopyHtml,
-        message: isUploadOrder
-          ? `✓ Order Copy uploaded against Application ${generatedAppId}. Server records mutated forcibly.`
-          : `✓ Patta correction approved at Tahsildar level under Application ${generatedAppId}. Official Order Copy generated.`,
+        message: finalMessage,
         details: {
           serviceCode: correctionServiceCode,
           serviceName: SERVICE_NAMES[correctionServiceCode] || (isNatham ? 'A-Register Addition (Natham)' : 'A-Register Correction (Rural)'),

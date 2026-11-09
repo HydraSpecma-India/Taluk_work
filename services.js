@@ -4337,8 +4337,9 @@ async function submitPattaCorrectionToTamilNilam(item, btnElement, isUpload = fa
     if (data.orderNo) item.orderNo = data.orderNo;
     if (data.orderDate) item.orderDate = data.orderDate;
     if (data.orderHtml) item.orderHtml = data.orderHtml;
-    item.orderStatus = data.orderStatus || (isUpload ? 'Uploaded and Mutated' : 'Order Issued');
-    item.status = isUpload ? '✓ Mutated on Server' : '✓ Approved (Order Issued)';
+    const isMutated = Boolean(data.isPortalMutated);
+    item.orderStatus = data.orderStatus || (isMutated ? 'Mutated on Tamil Nilam Server' : 'Order Issued');
+    item.status = data.status || (isMutated ? '✓ Mutated on Server' : '📋 Order Copy Issued');
     item.date = item.date || new Date().toLocaleString('en-GB');
 
     // Update in list
@@ -4355,22 +4356,24 @@ async function submitPattaCorrectionToTamilNilam(item, btnElement, isUpload = fa
     renderPattaTable();
 
     if (banner) {
-      banner.className = 'tn-status-banner success';
-      banner.style.background = 'rgba(34, 197, 94, 0.12)';
-      banner.style.border = '1.5px solid #16a34a';
-      banner.style.color = '#14532d';
+      const isPortalSuccess = Boolean(data.isPortalMutated);
+
+      banner.className = `tn-status-banner ${isPortalSuccess ? 'success' : 'info'}`;
+      banner.style.background = isPortalSuccess ? 'rgba(34, 197, 94, 0.12)' : 'rgba(8, 145, 178, 0.1)';
+      banner.style.border = isPortalSuccess ? '1.5px solid #16a34a' : '1.5px solid #0891b2';
+      banner.style.color = isPortalSuccess ? '#14532d' : '#0e7490';
       banner.style.display = 'block';
       banner.innerHTML = `
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
           <div>
-            <div style="font-size: 14px; font-weight: 800; color: #15803d; display: flex; align-items: center; gap: 6px;">
-              <span>✓</span> ${isUpload ? 'Order Copy Uploaded &amp; Mutation Committed to Tamil Nilam Server!' : 'Patta Name &amp; Size Correction Approved at Tahsildar Level!'}
+            <div style="font-size: 14px; font-weight: 800; color: ${isPortalSuccess ? '#15803d' : '#0369a1'}; display: flex; align-items: center; gap: 6px;">
+              <span>${isPortalSuccess ? '✓' : '📜'}</span> ${isPortalSuccess ? 'Mutation Committed to Tamil Nilam Government Database!' : 'Statutory Tahsildar Order Copy Generated!'}
             </div>
             <div style="font-size: 12.5px; margin-top: 4px; line-height: 1.4; color: var(--ink);">
               <strong>Application ID / Ref ID:</strong> <span style="font-family: monospace; font-weight: 700; background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 4px;">${esc(refId)}</span>
               ${item.orderNo ? `&bull; <strong>Order No:</strong> <span style="font-family: monospace; color: #047857; font-weight: 700;">${esc(item.orderNo)}</span>` : ''}
-              &bull; <strong>Tahsildar Approval:</strong> <span style="color: #16a34a; font-weight: 700;">Approved (Statutory A-Register 0109/N108)</span>
               &bull; <strong>Patta:</strong> <span>${esc(item.pattaNo)}</span>
+              ${!isPortalSuccess ? `<div style="margin-top: 5px; font-size: 12px; color: #b45309; font-weight: 600;">⚠️ Notice: To update the live government database, please enter a registered Tamil Nilam Application Number (Form 6) or upload this Order Copy document in the Tamil Nilam portal.</div>` : ''}
             </div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
