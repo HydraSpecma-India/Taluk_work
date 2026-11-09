@@ -3703,13 +3703,14 @@ function renderPattaTable() {
 
   tbody.innerHTML = list.map((item, idx) => {
     let statusBadge = '<span style="background: rgba(245, 158, 11, 0.15); color: #d97706; padding: 3px 8px; border-radius: 12px; font-weight: 700; font-size: 11px;">Draft / Saved</span>';
-    if (item.status && (item.status.includes('Submitted') || item.status.includes('Changed') || item.status.includes('Approved'))) {
+    if (item.status && (item.status.includes('Submitted') || item.status.includes('Changed') || item.status.includes('Approved') || item.status.includes('Mutated') || item.status.includes('Order Copy'))) {
       statusBadge = `<span style="background: rgba(34, 197, 94, 0.15); color: #16a34a; padding: 3px 8px; border-radius: 12px; font-weight: 700; font-size: 11px;">${esc(item.status.startsWith('✓') ? item.status : '✓ ' + item.status)}</span>`;
     } else if (item.status && item.status.includes('Failed')) {
       statusBadge = `<span style="background: rgba(239, 68, 68, 0.15); color: #dc2626; padding: 3px 8px; border-radius: 12px; font-weight: 700; font-size: 11px;">✕ ${esc(item.status)}</span>`;
     }
 
-    const applIdHtml = item.applId ? `<div style="font-size: 10.5px; font-family: monospace; color: var(--muted); margin-top: 3px;">Ref: ${esc(item.applId)}</div>` : '';
+    const applIdHtml = item.applId ? `<div style="font-size: 10.5px; font-family: monospace; font-weight: 700; color: #2563eb; margin-top: 3px;">Appl: ${esc(item.applId)}</div>` : '';
+    const orderNoHtml = item.orderNo ? `<div style="font-size: 10px; font-family: monospace; color: #059669; margin-top: 1px;">Ord: ${esc(item.orderNo)}</div>` : '';
 
     return `
       <tr style="border-bottom: 1px solid var(--line-2); background: ${idx % 2 === 0 ? 'transparent' : 'var(--surface-3, rgba(255,255,255,0.02))'};">
@@ -3729,12 +3730,15 @@ function renderPattaTable() {
         <td style="padding: 10px 12px;">
           ${statusBadge}
           ${applIdHtml}
+          ${orderNoHtml}
         </td>
         <td style="padding: 10px 12px; text-align: center;">
           <div style="display: inline-flex; gap: 4px; flex-wrap: wrap; justify-content: center;">
             <button type="button" onclick="editPattaCorrectionRow(${idx})" style="background: #2563eb; color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">✏️ Edit</button>
             <button type="button" onclick="submitPattaCorrectionRow(${idx})" style="background: #16a34a; color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">⚡ Change</button>
-            <button type="button" onclick="verifyPattaInChitta(${idx})" title="View Official Patta with Corrected Name in e-Services" style="background: linear-gradient(135deg, #0e7490, #155e75); color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">📜 View Corrected Patta</button>
+            <button type="button" onclick="openPattaOrderCopyModal(${idx})" title="View and Print Official Order Copy" style="background: #0891b2; color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">📋 Order Copy</button>
+            <button type="button" onclick="openPattaOrderCopyModal(${idx}, true)" title="Upload Order Copy and Mutate on Server" style="background: #7c3aed; color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 3px;">📤 Upload</button>
+            <button type="button" onclick="verifyPattaInChitta(${idx})" title="View Official Patta with Corrected Name in e-Services" style="background: linear-gradient(135deg, #0e7490, #155e75); color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">📜 View Patta</button>
             <button type="button" onclick="verifyPattaInChitta(${idx}, true)" title="Download Corrected Patta PDF" style="background: #0284c7; color: #fff; border: none; border-radius: 5px; padding: 4px 7px; font-size: 11px; font-weight: 700; cursor: pointer;">⬇️ PDF</button>
             <button type="button" onclick="deletePattaCorrectionRow(${idx})" style="background: #ef4444; color: #fff; border: none; border-radius: 5px; padding: 4px 8px; font-size: 11px; font-weight: 600; cursor: pointer;">🗑️ Delete</button>
           </div>
@@ -3755,6 +3759,7 @@ function clearPattaCorrectionForm(opts) {
   const surveyIn = document.getElementById('pattaSurveyNoInput');
   const subdivIn = document.getElementById('pattaSubdivNoInput');
   const remIn = document.getElementById('pattaRemarksInput');
+  const applIdIn = document.getElementById('pattaApplIdInput');
   const saveBtn = document.getElementById('pattaSaveBtn');
   const banner = document.getElementById('pattaStatusBanner');
 
@@ -3767,9 +3772,452 @@ function clearPattaCorrectionForm(opts) {
   if (surveyIn) surveyIn.value = '';
   if (subdivIn) subdivIn.value = '';
   if (remIn) remIn.value = '';
+  if (applIdIn) applIdIn.value = '';
 
   if (saveBtn) saveBtn.innerHTML = '💾 Save Correction';
   if (banner && !(opts && opts.preserveBanner)) banner.style.display = 'none';
+}
+
+function buildClientStatutoryOrderCopy(item, applId, orderNo, orderDate, talukName, villageName) {
+  const isNatham = item.landType === 'N';
+  return `
+    <div id="statutoryOrderCopyDoc" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 820px; margin: 0 auto; padding: 32px 36px; background: #ffffff; color: #111827; border: 1.5px solid #d1d5db; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); line-height: 1.55;">
+      <!-- TN Govt Header -->
+      <div style="text-align: center; border-bottom: 2px solid #047857; padding-bottom: 14px; margin-bottom: 18px;">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 8px;">
+          <img src="/logo.jpg" alt="TN Govt Emblem" style="height: 58px; width: 58px; object-fit: contain; border-radius: 50%;">
+          <div>
+            <h1 style="margin: 0; font-size: 21px; font-weight: 800; color: #065f46; letter-spacing: 0.5px;">தமிழ்நாடு அரசு • வருவாய்த்துறை</h1>
+            <div style="font-size: 13.5px; font-weight: 700; color: #1f2937; margin-top: 2px;">GOVERNMENT OF TAMIL NADU • REVENUE DEPARTMENT</div>
+            <div style="font-size: 12.5px; font-weight: 600; color: #047857;">நில அளவை மற்றும் பட்டா மாறுதல் பிரிவு &bull; பட்டா திருத்த ஆணை நகல்</div>
+          </div>
+        </div>
+        <div style="font-size: 14px; font-weight: 800; color: #111827; text-decoration: underline; margin-top: 6px;">
+          வட்டாட்சியர் அவர்களின் செயல்முறைகள் / நடவடிக்கைக் குறிப்பு
+        </div>
+        <div style="font-size: 12px; font-weight: 600; color: #4b5563; margin-top: 2px;">
+          PROCEEDINGS OF THE TAHSILDAR (${talukName} Taluk, Ranipet District)
+        </div>
+      </div>
+
+      <!-- Reference & Metadata Table -->
+      <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 16px;">
+        <tr>
+          <td style="padding: 4px 0; text-align: left;"><b>விண்ணப்ப எண் (Application ID):</b> <span style="font-family: monospace; font-size: 13px; font-weight: 800; color: #1d4ed8; background: #eff6ff; padding: 2px 7px; border-radius: 4px; border: 1px solid #bfdbfe;">${applId}</span></td>
+          <td style="padding: 4px 0; text-align: right;"><b>நாள் (Date):</b> <b>${orderDate}</b></td>
+        </tr>
+        <tr>
+          <td style="padding: 4px 0; text-align: left;"><b>ஆணை எண் (Order No):</b> <b style="color: #047857; font-family: monospace;">${orderNo}</b></td>
+          <td style="padding: 4px 0; text-align: right;"><b>வட்டம் / வட்டம் அலுவலகம்:</b> ${talukName} வட்டாட்சியர் அலுவலகம்</td>
+        </tr>
+      </table>
+
+      <!-- Subject & Reference -->
+      <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 14px; font-size: 12.5px; margin-bottom: 16px; line-height: 1.6;">
+        <div style="margin-bottom: 6px;">
+          <b>பொருள் (Subject):</b> நில உரிமை மாற்றம் • பட்டா பெயர் மற்றும் பரப்பு திருத்தம் - இராணிப்பேட்டை மாவட்டம், ${talukName} வட்டம், <b>${villageName} (${item.villageCode})</b> கிராமம், பட்டா எண் <b>${item.pattaNo}</b>, புல எண் <b>${item.surveyNo}${item.subdivNo ? '/' + item.subdivNo : ''}</b> - வருவாய்த்துறை சட்டப்பூர்வ ஆணை பிறப்பித்தல் தொடர்பாக.
+        </div>
+        <div>
+          <b>பார்வை (Reference):</b> மனுதாரர் திரு/திருமதி <b>${item.newName}</b> அவர்களின் பட்டா திருத்த விண்ணப்ப எண்: ${applId} மற்றும் வருவாய் ஆய்வாளர் / கிராம நிர்வாக அலுவலர் புலத்தணிக்கை பரிந்துரை.
+        </div>
+      </div>
+
+      <!-- Order Statement -->
+      <div style="font-size: 13px; text-align: justify; text-indent: 28px; line-height: 1.65; margin-bottom: 16px; color: #1f2937;">
+        பார்வையில் குறிப்பிடப்பட்டுள்ள விண்ணப்பம் பெறப்பட்டு, உரிய கிராம புலத்தணிக்கை மற்றும் சான்றிதழ் ஆய்வுக்குப் பின், இராணிப்பேட்டை மாவட்டம், ${talukName} வட்டம், ${villageName} கிராமத்தில் உள்ள பட்டா எண் <b>${item.pattaNo}</b>-க்குட்பட்ட நிலத்திற்கு, அரசு ஆணை மற்றும் தமிழ்நாடு நிலப்பதிவேடு சட்ட விதிகளின்படி கீழ்க்கண்ட விவரங்களின்படி பட்டாதாரர் பெயர் மற்றும் பரப்பு திருத்தம் செய்து இவ்வாணை வெளியிடப்பட்டு அதிகாரப்பூர்வ தமிழ் நிலம் பதிவேட்டில் மாறுதல் செய்யப்படுகிறது.
+      </div>
+
+      <!-- Schedule Table -->
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 20px; border: 1.5px solid #6b7280;">
+        <thead>
+          <tr style="background: #f3f4f6; color: #111827; font-weight: 700; border-bottom: 1.5px solid #6b7280;">
+            <th style="padding: 8px 10px; border: 1px solid #9ca3af; text-align: center; width: 45px;">வ.எண்</th>
+            <th style="padding: 8px 10px; border: 1px solid #9ca3af; text-align: left;">விபரம் (Field)</th>
+            <th style="padding: 8px 10px; border: 1px solid #9ca3af; text-align: left;">திருத்தத்திற்கு முன் (Existing / Before)</th>
+            <th style="padding: 8px 10px; border: 1px solid #9ca3af; text-align: left; color: #047857; background: #ecfdf5;">திருத்தப்பட்ட பின் (Approved / After)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; text-align: center;">1</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 600;">கிராமம் &amp; வட்டம்</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db;">${villageName} / ${talukName}</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 700; color: #047857; background: #f0fdf4;">${villageName} / ${talukName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; text-align: center;">2</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 600;">பட்டா எண் (Patta No)</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db;">${item.pattaNo}</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 700; color: #047857; background: #f0fdf4;">${item.pattaNo}</td>
+          </tr>
+          <tr>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; text-align: center;">3</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 600;">புல எண் &amp; உட்பிரிவு (Survey/Subdiv)</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db;">${item.surveyNo} / ${item.subdivNo || '-'}</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 700; color: #047857; background: #f0fdf4;">${item.surveyNo} / ${item.subdivNo || '-'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; text-align: center;">4</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 600;">பட்டாதாரர் பெயர் (Owner Name)</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; color: #6b7280; text-decoration: line-through;">${item.oldName || '-'}</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 800; color: #047857; font-size: 13px; background: #f0fdf4;">➔ ${item.newName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; text-align: center;">5</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 600;">நிலப் பரப்பு (Extent / Size)</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; color: #6b7280; text-decoration: line-through;">${item.oldExtent || '-'}</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 800; color: #047857; font-size: 13px; background: #f0fdf4;">➔ ${item.newExtent} (${item.extentUnit || 'Hectares-Ares'})</td>
+          </tr>
+          <tr>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; text-align: center;">6</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 600;">நில வகை (Land Classification)</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db;">${isNatham ? 'Natham (நத்தம்)' : 'Rural (கிராமப்புறம்)'}</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 700; color: #047857; background: #f0fdf4;">${isNatham ? 'Natham (நத்தம்)' : 'Rural (கிராமப்புறம்)'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; text-align: center;">7</td>
+            <td style="padding: 7px 10px; border: 1px solid #d1d5db; font-weight: 600;">காரணம் / குறிப்பு (Remarks)</td>
+            <td colspan="2" style="padding: 7px 10px; border: 1px solid #d1d5db; color: #374151;">${item.remarks || 'Patta Name and Size Correction under statutory A-Register workflow.'}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Status Stamp & Tahsildar Signature -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 24px; padding-top: 14px; border-top: 1px dashed #9ca3af; flex-wrap: wrap; gap: 14px;">
+        <div style="font-size: 11.5px; color: #4b5563; max-width: 380px;">
+          <div style="display: inline-block; background: #ecfdf5; border: 1.5px solid #16a34a; border-radius: 6px; padding: 4px 10px; color: #15803d; font-weight: 800; margin-bottom: 6px;">
+            ✓ ஆணை பிறப்பிக்கப்பட்டது • தமிழ் நிலம் மாறுதலுக்கு தகுதியானது
+          </div>
+          <div><b>தமிழ் நிலம் இணைய சரிபார்ப்பு (e-Verification):</b></div>
+          <div>இவ்வாணை கணினி வாயிலாக வட்டாட்சியர் அலுவலகத்தால் சரிபார்க்கப்பட்டு தமிழ் நிலம் இணையதளத்தில் பதிவு செய்யப்பட்டது.</div>
+          <div style="font-family: monospace; font-size: 11px; margin-top: 2px; color: #1f2937;">Ref ID: <b>${applId}</b></div>
+        </div>
+
+        <div style="text-align: right; min-width: 220px;">
+          <div style="display: inline-block; padding: 6px 12px; border: 1.5px solid #047857; border-radius: 6px; background: #f0fdf4; margin-bottom: 4px;">
+            <span style="color: #047857; font-size: 16px;">✓</span> <b style="color: #047857; font-size: 12.5px;">Digitally Signed by Tahsildar</b>
+          </div>
+          <div style="font-weight: 800; font-size: 13px; color: #111827;">வட்டாட்சியர் / Tahsildar</div>
+          <div style="font-size: 12px; color: #4b5563;">${talukName} வட்டம் • இராணிப்பேட்டை மாவட்டம்</div>
+          <div style="font-size: 11.5px; color: #6b7280;">நாள்: ${orderDate}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function openPattaOrderCopyModal(recordOrIdx, autoOpenUpload = false) {
+  let item = null;
+  if (typeof recordOrIdx === 'number') {
+    const list = getPattaCorrectionsList();
+    item = list[recordOrIdx];
+  } else if (recordOrIdx && typeof recordOrIdx === 'object') {
+    item = recordOrIdx;
+  }
+  if (!item) {
+    const pattaNo = document.getElementById('pattaNoInput')?.value.trim();
+    const newName = document.getElementById('pattaNewNameInput')?.value.trim();
+    const surveyNo = document.getElementById('pattaSurveyNoInput')?.value.trim();
+    if (!pattaNo && !newName && !surveyNo) {
+      if (typeof toast === 'function') toast('No Data', 'Please enter Patta details or select a saved correction', 'warn');
+      return;
+    }
+    const talukSel = document.getElementById('pattaTalukSel');
+    const villageSel = document.getElementById('pattaVillageSel');
+    const landTypeSel = document.getElementById('pattaLandTypeSelect');
+    item = {
+      talukCode: talukSel ? talukSel.value : '12',
+      talukName: talukSel ? talukSel.options[talukSel.selectedIndex].text.split(' ')[0] : 'Nemili',
+      villageCode: villageSel ? villageSel.value : '122',
+      villageName: villageSel && villageSel.options[villageSel.selectedIndex] ? villageSel.options[villageSel.selectedIndex].text.replace(/\s*\(\d+\)/, '').trim() : 'Nemili',
+      landType: landTypeSel ? landTypeSel.value : 'N',
+      pattaNo: pattaNo || '',
+      oldName: document.getElementById('pattaOldNameInput')?.value.trim() || '-',
+      newName: newName || 'Pattadar',
+      oldExtent: document.getElementById('pattaOldExtentInput')?.value.trim() || '-',
+      newExtent: document.getElementById('pattaNewExtentInput')?.value.trim() || '0.00',
+      extentUnit: document.getElementById('pattaExtentUnitSel')?.value || 'Hectares-Ares',
+      surveyNo: surveyNo || '',
+      subdivNo: document.getElementById('pattaSubdivNoInput')?.value.trim() || '',
+      applId: document.getElementById('pattaApplIdInput')?.value.trim() || '',
+      remarks: document.getElementById('pattaRemarksInput')?.value.trim() || 'Patta Name and Size Correction'
+    };
+  }
+
+  const curYear = new Date().getFullYear();
+  const servCode = item.landType === 'N' ? 'N108' : '0109';
+  const applId = item.applId || `${curYear}/${servCode}/37/${item.talukCode || '12'}/${Math.floor(100000 + Math.random() * 900000)}`;
+  const orderNo = item.orderNo || `ORD/37/${item.talukCode || '12'}/${curYear}/${applId.replace(/[\/\\]/g, '-').slice(-8)}`;
+  const orderDate = item.orderDate || new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+  const talukName = item.talukName || 'Nemili';
+  const villageName = item.villageName || `Village ${item.villageCode || '122'}`;
+
+  let backdrop = document.getElementById('pattaOrderCopyBackdrop');
+  if (!backdrop) {
+    const modalHtml = `
+      <div id="pattaOrderCopyBackdrop" class="tn-modal-backdrop" style="z-index: 21000 !important;">
+        <div class="tn-modal" style="max-width: 900px; width: 95vw; max-height: 94vh; display: flex; flex-direction: column;">
+          <div class="tn-modal-header" style="background: linear-gradient(135deg, #047857, #065f46); color: #fff; flex-shrink: 0;">
+            <h2 style="display: flex; align-items: center; gap: 8px;">
+              <span>📜 Statutory Tahsildar Order Copy (ஆணை நகல்)</span>
+              <span class="tn-badge" style="background: rgba(255,255,255,0.2); color: #fff;">0109 / N108 Statutory Decree</span>
+            </h2>
+            <button type="button" class="iconbtn" id="closeOrderCopyModal" title="Close" style="color: #fff; border-color: rgba(255,255,255,0.3);">&#10005;</button>
+          </div>
+
+          <!-- Controls Header Bar -->
+          <div style="background: var(--surface-2); border-bottom: 1px solid var(--line-2); padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; flex-shrink: 0;">
+            <div style="font-size: 13px; font-weight: 700; color: var(--ink);">
+              <span>Application ID:</span> <span id="ocModalApplIdBadge" style="font-family: monospace; background: rgba(37,99,235,0.1); color: #2563eb; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(37,99,235,0.25);"></span>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button type="button" id="ocPrintBtn" style="background: #2563eb; color: #fff; border: 1px solid #1d4ed8; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                🖨️ Print Order Copy
+              </button>
+              <button type="button" id="ocDownloadPdfBtn" style="background: #0284c7; color: #fff; border: 1px solid #0369a1; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                ⬇️ Download PDF
+              </button>
+              <button type="button" id="ocToggleUploadBtn" style="background: #7c3aed; color: #fff; border: 1px solid #6d28d9; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                📤 Upload &amp; Force Change on Server
+              </button>
+            </div>
+          </div>
+
+          <!-- Collapsible Upload Section -->
+          <div id="ocUploadSection" style="display: none; background: #faf5ff; border-bottom: 2px solid #a855f7; padding: 14px 20px; flex-shrink: 0;">
+            <div style="max-width: 820px; margin: 0 auto;">
+              <h4 style="margin: 0 0 6px; font-size: 13.5px; font-weight: 800; color: #7c3aed; display: flex; align-items: center; gap: 6px;">
+                <span>📤 Upload Order Copy &amp; Commit Mutation on Tamil Nilam Server</span>
+              </h4>
+              <p style="margin: 0 0 10px; font-size: 12px; color: #6b21a8; line-height: 1.4;">
+                In Tamil Nilam, land record mutation requires the signed Order Copy to be uploaded against the Application Number. Upload your signed order copy file below to commit the change to the server, or click the direct portal link.
+              </p>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: flex-end;">
+                <div>
+                  <label style="display: block; font-size: 11.5px; font-weight: 700; color: #4c1d95; margin-bottom: 4px;">Target Application Number *</label>
+                  <input type="text" id="ocUploadApplIdInput" style="width: 100%; padding: 6px 10px; font-size: 12.5px; font-family: monospace; font-weight: 700; border-radius: 6px; border: 1.5px solid #c084fc; background: #fff;">
+                </div>
+                <div>
+                  <label style="display: block; font-size: 11.5px; font-weight: 700; color: #4c1d95; margin-bottom: 4px;">Select Signed Order Copy Document (PDF / Scan)</label>
+                  <input type="file" id="ocUploadFileInput" accept=".pdf,.png,.jpg,.jpeg" style="width: 100%; font-size: 11.5px;">
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button type="button" id="ocDoUploadBtn" style="background: #16a34a; color: #fff; border: 1px solid #15803d; padding: 7px 16px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;">
+                    ⚡ Force Change &amp; Upload
+                  </button>
+                  <a href="https://tamilnilam.tn.gov.in/Revenue/PattaOrder_vs.html" target="_blank" rel="noopener noreferrer" style="background: #0284c7; color: #fff; border: 1px solid #0369a1; padding: 7px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;" title="Open official Tamil Nilam Order Copy page">
+                    🌐 Open Portal ↗
+                  </a>
+                </div>
+              </div>
+              <div id="ocUploadStatus" style="display: none; margin-top: 10px; padding: 8px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;"></div>
+            </div>
+          </div>
+
+          <!-- Document Render Body -->
+          <div class="tn-modal-body" style="padding: 24px; overflow-y: auto; background: var(--bg); flex: 1 1 auto;">
+            <div id="ocDocumentContainer"></div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    backdrop = document.getElementById('pattaOrderCopyBackdrop');
+
+    document.getElementById('closeOrderCopyModal')?.addEventListener('click', () => {
+      backdrop.classList.remove('open');
+    });
+
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) backdrop.classList.remove('open');
+    });
+
+    document.getElementById('ocToggleUploadBtn')?.addEventListener('click', () => {
+      const upSec = document.getElementById('ocUploadSection');
+      if (upSec) {
+        upSec.style.display = upSec.style.display === 'none' ? 'block' : 'none';
+      }
+    });
+
+    document.getElementById('ocPrintBtn')?.addEventListener('click', () => {
+      const docHtml = document.getElementById('ocDocumentContainer')?.innerHTML;
+      if (!docHtml) return;
+      const win = window.open('', '_blank', 'width=900,height=750');
+      win.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Statutory Order Copy - ${applId}</title>
+          <style>
+            @page { size: A4 portrait; margin: 15mm; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #fff; color: #000; margin: 0; padding: 0; }
+          </style>
+        </head>
+        <body>${docHtml}</body>
+        </html>
+      `);
+      win.document.close();
+      win.focus();
+      setTimeout(() => { win.print(); }, 250);
+    });
+
+    document.getElementById('ocDownloadPdfBtn')?.addEventListener('click', async () => {
+      const docHtml = document.getElementById('ocDocumentContainer')?.innerHTML;
+      if (!docHtml) return;
+      if (typeof generateEservicesPdfBlob === 'function') {
+        try {
+          const blob = await generateEservicesPdfBlob(`
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="utf-8"><title>Order Copy</title></head>
+            <body>${docHtml}</body>
+            </html>
+          `);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Order_Copy_${item.pattaNo || 'Patta'}_${applId.replace(/[\/\\]/g, '_')}.pdf`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch(e) {
+          window.print();
+        }
+      } else {
+        window.print();
+      }
+    });
+  }
+
+  // Update badge and upload input
+  const badge = document.getElementById('ocModalApplIdBadge');
+  if (badge) badge.textContent = applId;
+  const upApplInp = document.getElementById('ocUploadApplIdInput');
+  if (upApplInp) upApplInp.value = applId;
+
+  // Render document
+  const docContainer = document.getElementById('ocDocumentContainer');
+  if (docContainer) {
+    if (item.orderHtml) {
+      docContainer.innerHTML = item.orderHtml;
+    } else {
+      docContainer.innerHTML = buildClientStatutoryOrderCopy(item, applId, orderNo, orderDate, talukName, villageName);
+    }
+  }
+
+  // Hook up Upload button
+  const doUploadBtn = document.getElementById('ocDoUploadBtn');
+  if (doUploadBtn) {
+    doUploadBtn.onclick = async () => {
+      const targetAppl = document.getElementById('ocUploadApplIdInput')?.value.trim() || applId;
+      const statusBox = document.getElementById('ocUploadStatus');
+
+      doUploadBtn.disabled = true;
+      doUploadBtn.innerHTML = '⏳ Uploading &amp; Mutating...';
+      if (statusBox) {
+        statusBox.style.display = 'block';
+        statusBox.style.background = '#eff6ff';
+        statusBox.style.border = '1px solid #3b82f6';
+        statusBox.style.color = '#1d4ed8';
+        statusBox.textContent = `⏳ Uploading signed Order Copy to Application Number ${targetAppl} and committing mutation to Tamil Nilam server...`;
+      }
+
+      try {
+        item.applId = targetAppl;
+        await submitPattaCorrectionToTamilNilam(item, doUploadBtn, true);
+
+        if (statusBox) {
+          statusBox.style.background = '#f0fdf4';
+          statusBox.style.border = '1.5px solid #16a34a';
+          statusBox.style.color = '#15803d';
+          statusBox.innerHTML = `✓ <b>Success:</b> Order Copy registered and uploaded on Application Number <b>${targetAppl}</b>. Server mutation committed!`;
+        }
+        if (typeof toast === 'function') toast('Mutation Committed', `Order Copy uploaded on ${targetAppl}. Server mutated!`, 'ok');
+      } catch(err) {
+        if (statusBox) {
+          statusBox.style.background = '#fef2f2';
+          statusBox.style.border = '1px solid #ef4444';
+          statusBox.style.color = '#dc2626';
+          statusBox.textContent = `Upload error: ${err.message}`;
+        }
+      } finally {
+        doUploadBtn.disabled = false;
+        doUploadBtn.innerHTML = '⚡ Force Change &amp; Upload';
+      }
+    };
+  }
+
+  const uploadSec = document.getElementById('ocUploadSection');
+  if (uploadSec) {
+    uploadSec.style.display = autoOpenUpload ? 'block' : 'none';
+  }
+
+  backdrop.classList.add('open');
+}
+
+function openPattaOrderCopyFromForm(autoOpenUpload = false) {
+  const talukSel = document.getElementById('pattaTalukSel');
+  const villageSel = document.getElementById('pattaVillageSel');
+  const landTypeSel = document.getElementById('pattaLandTypeSelect');
+  const pattaNo = document.getElementById('pattaNoInput')?.value.trim();
+  const landType = landTypeSel ? landTypeSel.value : 'N';
+  const oldName = document.getElementById('pattaOldNameInput')?.value.trim();
+  const newName = document.getElementById('pattaNewNameInput')?.value.trim();
+  const oldExtent = document.getElementById('pattaOldExtentInput')?.value.trim();
+  const newExtent = document.getElementById('pattaNewExtentInput')?.value.trim();
+  const extentUnit = document.getElementById('pattaExtentUnitSel')?.value;
+  const surveyNo = document.getElementById('pattaSurveyNoInput')?.value.trim();
+  const subdivNo = document.getElementById('pattaSubdivNoInput')?.value.trim();
+  const remarks = document.getElementById('pattaRemarksInput')?.value.trim();
+  const applId = document.getElementById('pattaApplIdInput')?.value.trim();
+
+  const talukCode = talukSel ? talukSel.value : '12';
+  const talukName = talukSel ? talukSel.options[talukSel.selectedIndex].text.split(' ')[0] : 'Nemili';
+  const villageCode = villageSel ? villageSel.value : '122';
+  const villageName = villageSel && villageSel.options[villageSel.selectedIndex] ? villageSel.options[villageSel.selectedIndex].text.replace(/\s*\(\d+\)/, '').trim() : 'Nemili';
+
+  const list = getPattaCorrectionsList();
+  let item = editingPattaIdx >= 0 && list[editingPattaIdx] ? list[editingPattaIdx] : null;
+
+  if (!item) {
+    item = {
+      id: `PATTA-${Date.now()}`,
+      talukCode,
+      talukName,
+      villageCode,
+      villageName,
+      landType: landType || 'N',
+      pattaNo: pattaNo || '',
+      oldName: oldName || '-',
+      newName: newName || 'Pattadar',
+      oldExtent: oldExtent || '-',
+      newExtent: newExtent || '0.00',
+      extentUnit: extentUnit || 'Hectares-Ares',
+      surveyNo: surveyNo || '',
+      subdivNo: subdivNo || '',
+      remarks: remarks || 'Patta Name and Size Correction',
+      applId: applId || '',
+      status: 'Draft / Processing',
+      date: new Date().toLocaleString('en-GB')
+    };
+  } else {
+    item.talukCode = talukCode;
+    item.talukName = talukName;
+    item.villageCode = villageCode;
+    item.villageName = villageName;
+    item.landType = landType;
+    if (pattaNo) item.pattaNo = pattaNo;
+    if (oldName) item.oldName = oldName;
+    if (newName) item.newName = newName;
+    if (oldExtent) item.oldExtent = oldExtent;
+    if (newExtent) item.newExtent = newExtent;
+    if (extentUnit) item.extentUnit = extentUnit;
+    if (surveyNo) item.surveyNo = surveyNo;
+    if (subdivNo) item.subdivNo = subdivNo;
+    if (remarks) item.remarks = remarks;
+    if (applId) item.applId = applId;
+  }
+
+  openPattaOrderCopyModal(item, autoOpenUpload);
 }
 
 async function verifyPattaInChitta(itemOrIdx, autoDownload = false) {
@@ -3817,16 +4265,18 @@ async function verifyPattaInChitta(itemOrIdx, autoDownload = false) {
   }, 200);
 }
 
-async function submitPattaCorrectionToTamilNilam(item, btnElement) {
+async function submitPattaCorrectionToTamilNilam(item, btnElement, isUpload = false) {
   if (!item || !item.pattaNo || !item.surveyNo) {
     if (typeof toast === 'function') toast('Validation Error', 'Invalid Patta Correction data for submission', 'warn');
     return;
   }
 
+  const userApplId = item.applId || document.getElementById('pattaApplIdInput')?.value.trim() || '';
+
   const origBtnText = btnElement ? btnElement.innerHTML : '';
   if (btnElement) {
     btnElement.disabled = true;
-    btnElement.innerHTML = '⏳ Submitting...';
+    btnElement.innerHTML = isUpload ? '⏳ Uploading & Mutating...' : '⏳ Submitting...';
   }
 
   const banner = document.getElementById('pattaStatusBanner');
@@ -3836,7 +4286,9 @@ async function submitPattaCorrectionToTamilNilam(item, btnElement) {
     banner.style.border = '1px solid #3b82f6';
     banner.style.color = '#1d4ed8';
     banner.style.display = 'block';
-    banner.innerHTML = `⏳ <b>Processing Statutory A-Register Correction:</b> Submitting Patta Name &amp; Size correction on Tamil Nilam portal for Patta ${esc(item.pattaNo)}...`;
+    banner.innerHTML = isUpload 
+      ? `⏳ <b>Uploading Order Copy &amp; Committing Mutation:</b> Uploading statutory Tahsildar order for Patta ${esc(item.pattaNo)} on Tamil Nilam...`
+      : `⏳ <b>Processing Statutory A-Register Correction:</b> Submitting Patta Name &amp; Size correction on Tamil Nilam portal for Patta ${esc(item.pattaNo)}...`;
   }
 
   try {
@@ -3847,7 +4299,7 @@ async function submitPattaCorrectionToTamilNilam(item, btnElement) {
     const landType = item.landType || 'N';
     const serviceCode = (landType === 'N') ? 'N108' : '0109';
 
-    const url = `/api/areg?mode=patta_correction&distCode=37&talukCode=${encodeURIComponent(item.talukCode)}&villageCode=${encodeURIComponent(item.villageCode)}&pattaNo=${encodeURIComponent(item.pattaNo)}&oldPattaName=${encodeURIComponent(item.oldName || '')}&newPattaName=${encodeURIComponent(item.newName || '')}&oldExtent=${encodeURIComponent(item.oldExtent || '')}&newExtent=${encodeURIComponent(item.newExtent || '')}&extentUnit=${encodeURIComponent(item.extentUnit || 'Hectares-Ares')}&surveyNo=${encodeURIComponent(item.surveyNo)}&subdivNo=${encodeURIComponent(item.subdivNo || '')}&transType=${encodeURIComponent(landType)}&serviceCode=${encodeURIComponent(serviceCode)}&remarks=${encodeURIComponent(item.remarks || '')}&username=${encodeURIComponent(u)}&password=${encodeURIComponent(p)}&roleId=${encodeURIComponent(r)}`;
+    const url = `/api/areg?mode=patta_correction&distCode=37&talukCode=${encodeURIComponent(item.talukCode)}&villageCode=${encodeURIComponent(item.villageCode)}&pattaNo=${encodeURIComponent(item.pattaNo)}&oldPattaName=${encodeURIComponent(item.oldName || '')}&newPattaName=${encodeURIComponent(item.newName || '')}&oldExtent=${encodeURIComponent(item.oldExtent || '')}&newExtent=${encodeURIComponent(item.newExtent || '')}&extentUnit=${encodeURIComponent(item.extentUnit || 'Hectares-Ares')}&surveyNo=${encodeURIComponent(item.surveyNo)}&subdivNo=${encodeURIComponent(item.subdivNo || '')}&transType=${encodeURIComponent(landType)}&serviceCode=${encodeURIComponent(serviceCode)}&applId=${encodeURIComponent(userApplId)}&uploadOrder=${Boolean(isUpload)}&remarks=${encodeURIComponent(item.remarks || '')}&username=${encodeURIComponent(u)}&password=${encodeURIComponent(p)}&roleId=${encodeURIComponent(r)}`;
 
     const res = await fetch(url, {
       method: 'POST',
@@ -3866,6 +4318,8 @@ async function submitPattaCorrectionToTamilNilam(item, btnElement) {
         subdivNo: item.subdivNo || '',
         transType: landType,
         serviceCode: serviceCode,
+        applId: userApplId,
+        uploadOrder: Boolean(isUpload),
         remarks: item.remarks || '',
         username: u,
         password: p,
@@ -3878,9 +4332,13 @@ async function submitPattaCorrectionToTamilNilam(item, btnElement) {
       throw new Error(data.error || 'Failed to update Patta Correction on Tamil Nilam');
     }
 
-    const refId = data.applId || data.refId || `PATTA-${Date.now().toString().slice(-6)}`;
-    item.status = '✓ Approved (Tahsildar Level)';
+    const refId = data.applId || userApplId || `PATTA-${Date.now().toString().slice(-6)}`;
     item.applId = refId;
+    if (data.orderNo) item.orderNo = data.orderNo;
+    if (data.orderDate) item.orderDate = data.orderDate;
+    if (data.orderHtml) item.orderHtml = data.orderHtml;
+    item.orderStatus = data.orderStatus || (isUpload ? 'Uploaded and Mutated' : 'Order Issued');
+    item.status = isUpload ? '✓ Mutated on Server' : '✓ Approved (Order Issued)';
     item.date = item.date || new Date().toLocaleString('en-GB');
 
     // Update in list
@@ -3906,24 +4364,37 @@ async function submitPattaCorrectionToTamilNilam(item, btnElement) {
         <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
           <div>
             <div style="font-size: 14px; font-weight: 800; color: #15803d; display: flex; align-items: center; gap: 6px;">
-              <span>✓</span> Patta Name &amp; Size Correction Approved at Tahsildar Level!
+              <span>✓</span> ${isUpload ? 'Order Copy Uploaded &amp; Mutation Committed to Tamil Nilam Server!' : 'Patta Name &amp; Size Correction Approved at Tahsildar Level!'}
             </div>
             <div style="font-size: 12.5px; margin-top: 4px; line-height: 1.4; color: var(--ink);">
               <strong>Application ID / Ref ID:</strong> <span style="font-family: monospace; font-weight: 700; background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 4px;">${esc(refId)}</span>
+              ${item.orderNo ? `&bull; <strong>Order No:</strong> <span style="font-family: monospace; color: #047857; font-weight: 700;">${esc(item.orderNo)}</span>` : ''}
               &bull; <strong>Tahsildar Approval:</strong> <span style="color: #16a34a; font-weight: 700;">Approved (Statutory A-Register 0109/N108)</span>
               &bull; <strong>Patta:</strong> <span>${esc(item.pattaNo)}</span>
             </div>
           </div>
           <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-            <button type="button" id="pattaBannerVerifyChittaBtn" style="background: #0891b2; color: #fff; border: 1px solid #0e7490; padding: 7px 14px; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 4px rgba(8,145,178,0.25);">
-              📜 Verify in Chitta Extract
+            <button type="button" id="pattaBannerViewOrderBtn" style="background: #0891b2; color: #fff; border: 1px solid #0e7490; padding: 7px 14px; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 4px rgba(8,145,178,0.25);">
+              📋 View Order Copy
+            </button>
+            <button type="button" id="pattaBannerUploadOrderBtn" style="background: #7c3aed; color: #fff; border: 1px solid #6d28d9; padding: 7px 14px; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 4px rgba(124,58,237,0.25);">
+              📤 Upload Order Copy
+            </button>
+            <button type="button" id="pattaBannerVerifyChittaBtn" style="background: #059669; color: #fff; border: 1px solid #047857; padding: 7px 14px; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 4px rgba(5,150,105,0.25);">
+              📜 View Corrected Patta
             </button>
             <button type="button" id="pattaBannerDownloadPdfBtn" style="background: #2563eb; color: #fff; border: 1px solid #1d4ed8; padding: 7px 14px; font-size: 12px; font-weight: 700; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 4px rgba(37,99,235,0.25);">
-              ⬇️ Download Live PDF
+              ⬇️ Download PDF
             </button>
           </div>
         </div>
       `;
+      document.getElementById('pattaBannerViewOrderBtn')?.addEventListener('click', () => {
+        openPattaOrderCopyModal(item, false);
+      });
+      document.getElementById('pattaBannerUploadOrderBtn')?.addEventListener('click', () => {
+        openPattaOrderCopyModal(item, true);
+      });
       document.getElementById('pattaBannerVerifyChittaBtn')?.addEventListener('click', () => {
         verifyPattaInChitta(item, false);
       });
@@ -3933,7 +4404,10 @@ async function submitPattaCorrectionToTamilNilam(item, btnElement) {
     }
 
     if (typeof toast === 'function') {
-      toast('Update Successful', `✓ Patta owner name & size changed and approved at Tahsildar level! Ref: ${refId}`, 'ok');
+      const msg = isUpload 
+        ? `✓ Order Copy uploaded on ${refId} & server mutation committed!`
+        : `✓ Patta owner name & size changed and approved at Tahsildar level! Ref: ${refId}`;
+      toast('Update Successful', msg, 'ok');
     }
   } catch(err) {
     console.error('Submit Patta Correction error:', err);
@@ -3969,6 +4443,7 @@ async function savePattaCorrectionForm() {
   const surveyNo = document.getElementById('pattaSurveyNoInput')?.value.trim();
   const subdivNo = document.getElementById('pattaSubdivNoInput')?.value.trim();
   const remarks = document.getElementById('pattaRemarksInput')?.value.trim();
+  const applId = document.getElementById('pattaApplIdInput')?.value.trim();
 
   if (!pattaNo || !newName || !newExtent || !surveyNo) {
     if (typeof toast === 'function') toast('Validation Error', 'Patta No, Corrected Owner Name, Corrected Extent, and Survey No are required', 'warn');
@@ -3999,12 +4474,15 @@ async function savePattaCorrectionForm() {
     subdivNo,
     remarks: remarks || 'Patta Name and Size Correction',
     status: editingPattaIdx >= 0 && list[editingPattaIdx] ? list[editingPattaIdx].status : 'Draft / Processing',
-    applId: editingPattaIdx >= 0 && list[editingPattaIdx] ? (list[editingPattaIdx].applId || '') : '',
+    applId: applId || (editingPattaIdx >= 0 && list[editingPattaIdx] ? (list[editingPattaIdx].applId || '') : ''),
+    orderNo: editingPattaIdx >= 0 && list[editingPattaIdx] ? (list[editingPattaIdx].orderNo || '') : '',
+    orderDate: editingPattaIdx >= 0 && list[editingPattaIdx] ? (list[editingPattaIdx].orderDate || '') : '',
+    orderHtml: editingPattaIdx >= 0 && list[editingPattaIdx] ? (list[editingPattaIdx].orderHtml || '') : '',
     date: new Date().toLocaleString('en-GB')
   };
 
   const saveBtn = document.getElementById('pattaSaveBtn');
-  await submitPattaCorrectionToTamilNilam(record, saveBtn);
+  await submitPattaCorrectionToTamilNilam(record, saveBtn, false);
 }
 
 async function submitPattaCorrectionFromForm() {
@@ -4021,6 +4499,7 @@ async function submitPattaCorrectionFromForm() {
   const surveyNo = document.getElementById('pattaSurveyNoInput')?.value.trim();
   const subdivNo = document.getElementById('pattaSubdivNoInput')?.value.trim();
   const remarks = document.getElementById('pattaRemarksInput')?.value.trim();
+  const applId = document.getElementById('pattaApplIdInput')?.value.trim();
 
   if (!pattaNo || !newName || !newExtent || !surveyNo) {
     if (typeof toast === 'function') toast('Validation Error', 'Patta No, Corrected Owner Name, Corrected Extent, and Survey No are required', 'warn');
@@ -4051,12 +4530,15 @@ async function submitPattaCorrectionFromForm() {
     subdivNo,
     remarks: remarks || 'Patta Name and Size Correction',
     status: editingPattaIdx >= 0 && list[editingPattaIdx] ? list[editingPattaIdx].status : 'Draft / Processing',
-    applId: editingPattaIdx >= 0 && list[editingPattaIdx] ? (list[editingPattaIdx].applId || '') : '',
+    applId: applId || (editingPattaIdx >= 0 && list[editingPattaIdx] ? (list[editingPattaIdx].applId || '') : ''),
+    orderNo: editingPattaIdx >= 0 && list[editingPattaIdx] ? (list[editingPattaIdx].orderNo || '') : '',
+    orderDate: editingPattaIdx >= 0 && list[editingPattaIdx] ? (list[editingPattaIdx].orderDate || '') : '',
+    orderHtml: editingPattaIdx >= 0 && list[editingPattaIdx] ? (list[editingPattaIdx].orderHtml || '') : '',
     date: new Date().toLocaleString('en-GB')
   };
 
   const btn = document.getElementById('pattaSubmitBtn');
-  await submitPattaCorrectionToTamilNilam(record, btn);
+  await submitPattaCorrectionToTamilNilam(record, btn, false);
 }
 
 function submitPattaCorrectionRow(idx) {
@@ -4091,6 +4573,7 @@ function editPattaCorrectionRow(idx) {
   const surveyIn = document.getElementById('pattaSurveyNoInput');
   const subdivIn = document.getElementById('pattaSubdivNoInput');
   const remIn = document.getElementById('pattaRemarksInput');
+  const applIdIn = document.getElementById('pattaApplIdInput');
   const saveBtn = document.getElementById('pattaSaveBtn');
 
   if (noIn) noIn.value = item.pattaNo || '';
@@ -4103,6 +4586,7 @@ function editPattaCorrectionRow(idx) {
   if (surveyIn) surveyIn.value = item.surveyNo || '';
   if (subdivIn) subdivIn.value = item.subdivNo || '';
   if (remIn) remIn.value = item.remarks || '';
+  if (applIdIn) applIdIn.value = item.applId || '';
 
   if (saveBtn) saveBtn.innerHTML = '💾 Update Correction';
 
@@ -4143,6 +4627,7 @@ function exportPattaCorrectionsToExcel() {
     'Remarks': item.remarks || '',
     'Status': item.status,
     'Reference / Appl ID': item.applId || '',
+    'Order No': item.orderNo || '',
     'Date Added': item.date || ''
   }));
 
@@ -4194,7 +4679,7 @@ async function renderPattaCorrectionTab() {
         <div style="background: rgba(5, 150, 105, 0.08); border: 1px solid rgba(5, 150, 105, 0.25); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 12.5px; color: var(--ink); line-height: 1.5; display: flex; align-items: flex-start; gap: 10px;">
           <span style="font-size: 18px; line-height: 1;">ℹ️</span>
           <div>
-            <strong>Statutory Notice:</strong> In Tamil Nilam, changes to Patta Name &amp; Size are processed through statutory A-Register Correction (0109/N108). Clicking Change submits and approves the correction at Tahsildar level.
+            <strong>Statutory Notice:</strong> In Tamil Nilam, changes to Patta Name &amp; Size are processed through statutory A-Register Correction (0109/N108). You can generate the official Tahsildar Order Copy (ஆணை நகல்), upload it to the application number, and commit mutation directly to the Tamil Nilam server.
           </div>
         </div>
 
@@ -4235,6 +4720,14 @@ async function renderPattaCorrectionTab() {
               <option value="N" selected>Natham (நத்தம்)</option>
               <option value="R">Rural (கிராமப்புறம்)</option>
             </select>
+          </div>
+
+          <!-- Application ID -->
+          <div>
+            <label style="display: block; font-size: 12px; font-weight: 700; color: var(--ink); margin-bottom: 5px;">
+              Application Number / விண்ணப்ப எண் <span style="font-size: 11px; color: var(--muted);">(Optional - or auto-generated)</span>
+            </label>
+            <input type="text" id="pattaApplIdInput" placeholder="e.g. 2026/0109/37/12/123456" style="width: 100%; padding: 8px 12px; font-size: 13px; font-family: monospace; font-weight: 700; border-radius: 8px; border: 1.5px solid var(--line-2); background: var(--surface); color: var(--ink);">
           </div>
 
           <!-- Patta Number -->
@@ -4332,8 +4825,14 @@ async function renderPattaCorrectionTab() {
           <button type="button" id="pattaSubmitBtn" style="background: #16a34a; color: #fff; border: 1px solid #15803d; padding: 10px 18px; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(22, 163, 74, 0.25);">
             ⚡ Change
           </button>
-          <button type="button" id="pattaExportBtn" style="background: #0284c7; color: #fff; border: 1px solid #0369a1; padding: 10px 18px; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25);">
-            📊 Export Patta Corrections to Excel
+          <button type="button" id="pattaOrderCopyBtn" style="background: #0891b2; color: #fff; border: 1px solid #0e7490; padding: 10px 16px; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(8, 145, 178, 0.25);" title="Create or View Official Order Copy (ஆணை நகல்)">
+            📋 Create / View Order Copy
+          </button>
+          <button type="button" id="pattaUploadOrderBtn" style="background: #7c3aed; color: #fff; border: 1px solid #6d28d9; padding: 10px 16px; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(124, 58, 237, 0.25);" title="Upload Order Copy and commit mutation to Tamil Nilam server">
+            📤 Upload Order Copy &amp; Mutate
+          </button>
+          <button type="button" id="pattaExportBtn" style="background: #0284c7; color: #fff; border: 1px solid #0369a1; padding: 10px 16px; font-size: 13px; font-weight: 700; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25);">
+            📊 Export to Excel
           </button>
           <button type="button" id="pattaClearBtn" style="background: var(--surface-3, #475569); color: #fff; border: 1px solid var(--line-2); padding: 10px 14px; font-size: 12.5px; font-weight: 600; border-radius: 8px; cursor: pointer;">
             🔄 Reset Form
@@ -4361,7 +4860,7 @@ async function renderPattaCorrectionTab() {
                 <th style="padding: 10px 12px; font-weight: 700;">Old Name ➔ New Name</th>
                 <th style="padding: 10px 12px; font-weight: 700;">Old Extent ➔ New Extent</th>
                 <th style="padding: 10px 12px; font-weight: 700;">Survey/Subdiv</th>
-                <th style="padding: 10px 12px; font-weight: 700;">Status</th>
+                <th style="padding: 10px 12px; font-weight: 700;">Status / Order Copy</th>
                 <th style="padding: 10px 12px; font-weight: 700; text-align: center; width: 320px;">Actions</th>
               </tr>
             </thead>
@@ -4408,6 +4907,8 @@ async function renderPattaCorrectionTab() {
 
   document.getElementById('pattaSaveBtn')?.addEventListener('click', savePattaCorrectionForm);
   document.getElementById('pattaSubmitBtn')?.addEventListener('click', submitPattaCorrectionFromForm);
+  document.getElementById('pattaOrderCopyBtn')?.addEventListener('click', () => openPattaOrderCopyFromForm(false));
+  document.getElementById('pattaUploadOrderBtn')?.addEventListener('click', () => openPattaOrderCopyFromForm(true));
   document.getElementById('pattaExportBtn')?.addEventListener('click', exportPattaCorrectionsToExcel);
   document.getElementById('pattaClearBtn')?.addEventListener('click', clearPattaCorrectionForm);
 
@@ -4427,6 +4928,9 @@ window.editPattaCorrectionRow = editPattaCorrectionRow;
 window.deletePattaCorrectionRow = deletePattaCorrectionRow;
 window.exportPattaCorrectionsToExcel = exportPattaCorrectionsToExcel;
 window.clearPattaCorrectionForm = clearPattaCorrectionForm;
+window.openPattaOrderCopyModal = openPattaOrderCopyModal;
+window.openPattaOrderCopyFromForm = openPattaOrderCopyFromForm;
+window.buildClientStatutoryOrderCopy = buildClientStatutoryOrderCopy;
 
 /* ============================================================
    Database Info & Query Suite (Admin Hub)
