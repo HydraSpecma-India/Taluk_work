@@ -3556,6 +3556,7 @@ async function fetchLivePattaInfo() {
   const villageSel = document.getElementById('pattaVillageSel');
   const landTypeSel = document.getElementById('pattaLandTypeSelect');
 
+  const distCode = '37'; // Patta Correction tab has no district selector; always district 37
   const talukCode = talukSel ? talukSel.value : '12';
   const villageCode = villageSel ? villageSel.value : '122';
   const landType = landTypeSel ? landTypeSel.value : 'N';
@@ -3588,7 +3589,7 @@ async function fetchLivePattaInfo() {
 
   try {
     const creds = (typeof getTnCreds === 'function' ? getTnCreds('primary') : null) || {};
-    let url = '/api/areg?mode=fetch_patta&distCode=37&talukCode=' + encodeURIComponent(talukCode) + '&villageCode=' + encodeURIComponent(villageCode) + '&pattaNo=' + encodeURIComponent(pattaNo) + '&surveyNo=' + encodeURIComponent(surveyNo) + '&subdivNo=' + encodeURIComponent(subdivNo) + '&transType=' + encodeURIComponent(landType);
+    let url = '/api/areg?mode=fetch_patta&distCode=' + encodeURIComponent(distCode) + '&talukCode=' + encodeURIComponent(talukCode) + '&villageCode=' + encodeURIComponent(villageCode) + '&pattaNo=' + encodeURIComponent(pattaNo) + '&surveyNo=' + encodeURIComponent(surveyNo) + '&subdivNo=' + encodeURIComponent(subdivNo) + '&transType=' + encodeURIComponent(landType);
     if (creds.username && creds.password) {
       url += '&username=' + encodeURIComponent(creds.username) + '&password=' + encodeURIComponent(creds.password) + '&roleId=' + encodeURIComponent(creds.roleId || '7');
     }
