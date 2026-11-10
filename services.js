@@ -71,11 +71,16 @@ function resolveTalukCode(val) {
   return '12';
 }
 
+function isSuperUser(){
+  return !!(ME && (ME.role === 'super_user' || ME.role === 'superuser'));
+}
+window.isSuperUser = isSuperUser;
+
 function allTaluks(){
   return TALUK_LIST.slice().sort((a,b)=>a.localeCompare(b));
 }
 function myTaluks(){
-  if(!ME || ME.role === 'admin') return null;
+  if(!ME || ME.role === 'admin' || isSuperUser()) return null;
   const t = (ME.taluks || []).map(x => String(x==null?'':x).trim()).filter(Boolean);
   return t.length ? t : null;
 }
@@ -193,6 +198,7 @@ window.saveAllTnCreds = saveAllTnCreds;
 function canViewCreds(){
   if(!CLOUD_ON) return true;
   if(!ME) return false;
+  if(isSuperUser()) return false;
   if(ME.role === 'admin') return true;
   return ME.can_view_creds === true;
 }
@@ -201,6 +207,7 @@ window.canViewCreds = canViewCreds;
 function canUpdateCreds(){
   if(!CLOUD_ON) return true;
   if(!ME) return false;
+  if(isSuperUser()) return false;
   if(ME.role === 'admin') return true;
   return ME.can_update_creds === true;
 }
@@ -209,6 +216,7 @@ window.canUpdateCreds = canUpdateCreds;
 function canManageCreds(){
   if(!CLOUD_ON) return true;
   if(!ME) return false;
+  if(isSuperUser()) return false;
   if(ME.role === 'admin') return true;
   return ME.can_view_creds === true || ME.can_update_creds === true;
 }
@@ -324,6 +332,12 @@ async function onSignedIn(session){
   if(ME.role === 'admin'){
     ME.can_view_creds = true;
     ME.can_update_creds = true;
+  } else if(isSuperUser()){
+    ME.can_view_creds = false;
+    ME.can_update_creds = false;
+    ME.site_access = 'both';
+    ME.taluks = [];
+    ME.menu_access = ['chitta', 'eservices', 'areg_pdf', 'areg', 'patta'];
   }
   if(!Array.isArray(ME.taluks)) ME.taluks = (ME.taluks ? [ME.taluks] : []);
   if(!Array.isArray(ME.menu_access)){
@@ -339,7 +353,9 @@ function renderWhoAmI(){
   const box = document.getElementById('whoami');
   if(!box || !ME) return;
   const isAdmin = !CLOUD_ON || (ME && ME.role === 'admin');
-  box.innerHTML = '<img src="/logo.jpg" alt="Profile" style="width:24px;height:24px;border-radius:50%;object-fit:cover;margin-right:6px;vertical-align:middle;border:1px solid var(--line-2);"><span class="rolechip' + (isAdmin ? ' admin' : '') + '">' + esc(ME.role) + '</span>' +
+  const isSup = isSuperUser();
+  const roleLabel = isAdmin ? 'admin' : (isSup ? 'super user' : esc(ME.role));
+  box.innerHTML = '<img src="/logo.jpg" alt="Profile" style="width:24px;height:24px;border-radius:50%;object-fit:cover;margin-right:6px;vertical-align:middle;border:1px solid var(--line-2);"><span class="rolechip' + (isAdmin ? ' admin' : (isSup ? ' super' : '')) + '">' + roleLabel + '</span>' +
                   '<b>' + esc(ME.full_name || ME.email) + '</b>';
   box.style.display = 'inline-flex';
   const signOutBtn = document.getElementById('signOutBtn');
@@ -638,7 +654,8 @@ const pickedMenus = el => el ? Array.from(el.querySelectorAll('input:checked')).
 
 async function renderUsers(){
   const isAdmin = !CLOUD_ON || (ME && ME.role === 'admin');
-  if(!isAdmin){ ADMIN_TAB = 'chitta'; renderChittaTab(); return; }
+  const isPrivileged = isAdmin || isSuperUser();
+  if(!isPrivileged){ ADMIN_TAB = 'chitta'; renderChittaTab(); return; }
   const box = document.getElementById('usersBody');
   if(!CLOUD_ON){ box.innerHTML = '<div class="empty">Not connected to the account service.</div>'; return; }
   box.innerHTML = '<div class="empty">Loading…</div>';
@@ -651,7 +668,7 @@ async function renderUsers(){
   let h = '<div class="addrow">' +
     '<div class="f"><label>Email</label><input type="email" id="nuEmail" placeholder="name@example.com"></div>' +
     '<div class="f"><label>Name</label><input type="text" id="nuName" placeholder="optional"></div>' +
-    '<div class="f" style="flex:0 0 100px"><label>Role</label><select id="nuRole"><option value="user">User</option><option value="admin">Admin</option></select></div>' +
+    '<div class="f" style="flex:0 0 130px"><label>Role</label><select id="nuRole"><option value="user">User</option><option value="super_user">Super User</option><option value="admin">Admin</option></select></div>' +
     '<div class="f" style="flex:0 0 170px"><label>Site Access</label>' +
       '<select id="nuSite">' +
         '<option value="both" selected>Both Sites (Reports &amp; Taluk Work)</option>' +
@@ -680,40 +697,46 @@ async function renderUsers(){
   (users||[]).forEach(u=>{
     const isMe = ME && u.id === ME.id;
     const sAcc = u.site_access || 'both';
+    const isUserSuper = u.role === 'super_user' || u.role === 'superuser';
+    const isUserAdmin = u.role === 'admin';
     const currentMenus = u.menu_access || (u.report_access === 'isd' ? ['upload','isd','single'] : u.report_access === 'nisd' ? ['upload','nisd'] : ['upload','isd','single','fline','nisd','chitta','eservices']);
     h += '<tr class="'+(u.active?'':'off')+'" data-id="'+esc(u.id)+'">' +
       '<td class="who"><b>'+esc(u.full_name || u.email)+'</b><small>'+esc(u.email)+'</small></td>' +
       '<td><select data-act="role"'+(isMe?' disabled title="You cannot change your own role"':'')+'>' +
         '<option value="user"'+(u.role==='user'?' selected':'')+'>User</option>' +
-        '<option value="admin"'+(u.role==='admin'?' selected':'')+'>Admin</option></select></td>' +
-      '<td>'+(u.role === 'admin'
-               ? '<span class="fstate">all menus (admin)</span>'
+        '<option value="super_user"'+(isUserSuper?' selected':'')+'>Super User</option>' +
+        '<option value="admin"'+(isUserAdmin?' selected':'')+'>Admin</option></select></td>' +
+      '<td>'+(isUserAdmin || isUserSuper
+               ? '<span class="fstate">all menus (' + (isUserAdmin ? 'admin' : 'super user') + ')</span>'
                : menuPicker(currentMenus, 'data-act="menus"'))+'</td>' +
-      '<td><select data-act="site"'+(u.role==='admin'?' disabled title="Admin always has access to both sites"':'')+'>' +
+      '<td><select data-act="site"'+((isUserAdmin || isUserSuper)?' disabled title="Full access to both sites"':'')+'>' +
         '<option value="both"'+(sAcc==='both'?' selected':'')+'>Both Sites</option>' +
         '<option value="village-auto-test"'+(sAcc==='village-auto-test'?' selected':'')+'>village-auto-test</option>' +
         '<option value="talukwork"'+((sAcc==='talukwork'||sAcc==='village-applications')?' selected':'')+'>Taluk Work Only</option>' +
-   '<option value="village-auto-test"'+(sAcc==='village-auto-test'?' selected':'')+'>Reports Only</option></select></td>' +
-      '<td>'+(u.role === 'admin'
-               ? '<span class="fstate">every taluk (admin)</span>'
+        '<option value="village-auto-test"'+(sAcc==='village-auto-test'?' selected':'')+'>Reports Only</option></select></td>' +
+      '<td>'+(isUserAdmin || isUserSuper
+               ? '<span class="fstate">every taluk (' + (isUserAdmin ? 'admin' : 'super user') + ')</span>'
                : talukPicker(u.taluks, 'data-act="taluks"'))+'</td>' +
-      '<td>'+(u.role === 'admin'
+      '<td>'+(isUserAdmin
                ? '<span class="fstate">Full (admin)</span>'
-               : '<div style="display:flex; flex-direction:column; gap:4px; font-size:11.5px;">' +
-                   '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap;">' +
-                     '<input type="checkbox" data-act="view-creds" '+(u.can_view_creds?'checked':'')+'> 👁️ View' +
-                   '</label>' +
-                   '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap;">' +
-                     '<input type="checkbox" data-act="update-creds" '+(u.can_update_creds?'checked':'')+'> ✏️ Update' +
-                   '</label>' +
-                 '</div>'
+               : (isUserSuper
+                   ? '<span class="fstate" style="color:var(--warn)">No credentials (protected)</span>'
+                   : '<div style="display:flex; flex-direction:column; gap:4px; font-size:11.5px;">' +
+                       '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap;">' +
+                         '<input type="checkbox" data-act="view-creds" '+(u.can_view_creds?'checked':'')+'> 👁️ View' +
+                       '</label>' +
+                       '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap;">' +
+                         '<input type="checkbox" data-act="update-creds" '+(u.can_update_creds?'checked':'')+'> ✏️ Update' +
+                       '</label>' +
+                     '</div>'
+                  )
             )+'</td>' +
       '<td>'+(u.active?'<span style="color:var(--ok)">Active</span>':'<span style="color:var(--muted)">Disabled</span>')+'</td>' +
       '<td style="text-align:right; white-space:nowrap">' +
         (isMe ? '<span class="fstate">that\'s you</span>'
               : '<button class="ghost" data-act="toggle">'+(u.active?'Disable':'Enable')+'</button>' +
                 ' <button class="ghost" data-act="reset" title="Email this person a password reset link">Reset</button>' +
-                ' <button class="ghost" data-act="del" title="Remove this account for good" style="color:var(--err)">Delete</button>') +
+                (!isSuperUser() ? ' <button class="ghost" data-act="del" title="Remove this account for good" style="color:var(--err)">Delete</button>' : '')) +
       '</td></tr>';
   });
   (invites||[]).forEach(i=>{
@@ -723,7 +746,7 @@ async function renderUsers(){
       '<td><span class="fstate">'+(i.menu_access && i.menu_access.length ? esc(i.menu_access.join(', ')) : esc(i.report_access || 'all'))+'</span></td>' +
       '<td><span class="fstate">'+esc(i.site_access || 'both')+'</span></td>' +
       '<td><span class="fstate">'+(i.taluks && i.taluks.length ? esc(i.taluks.join(', ')) : 'All')+'</span></td>' +
-      '<td><span class="fstate">'+(i.role === 'admin' ? 'Full (admin)' : ((i.can_view_creds ? '👁️ View ' : '') + (i.can_update_creds ? '✏️ Update' : '') || 'None'))+'</span></td>' +
+      '<td><span class="fstate">'+(i.role === 'admin' ? 'Full (admin)' : (i.role === 'super_user' ? 'Protected (super user)' : (((i.can_view_creds ? '👁️ View ' : '') + (i.can_update_creds ? '✏️ Update' : '')) || 'None')))+'</span></td>' +
       '<td><span style="color:var(--warn)">Invited</span></td>' +
       '<td style="text-align:right"><button class="ghost" data-act="uninvite">Remove</button></td></tr>';
   });
@@ -736,10 +759,11 @@ async function renderUsers(){
   if(nuRole){
     nuRole.addEventListener('change', ()=>{
       const isAdminRole = nuRole.value === 'admin';
+      const isSuperRole = nuRole.value === 'super_user';
       const v = document.getElementById('nuCanViewCreds');
       const u = document.getElementById('nuCanUpdateCreds');
-      if(v){ if(isAdminRole) v.checked = true; v.disabled = isAdminRole; }
-      if(u){ if(isAdminRole) u.checked = true; u.disabled = isAdminRole; }
+      if(v){ if(isAdminRole) v.checked = true; else if(isSuperRole) v.checked = false; v.disabled = isAdminRole || isSuperRole; }
+      if(u){ if(isAdminRole) u.checked = true; else if(isSuperRole) u.checked = false; u.disabled = isAdminRole || isSuperRole; }
     });
   }
   box.querySelectorAll('[data-act]').forEach(el=>{
@@ -764,6 +788,10 @@ async function renderUsers(){
       else toast('Reset link sent', mail + ' can set a new password from that email.', 'ok');
     });
     if(el.dataset.act === 'del') el.addEventListener('click', async ()=>{
+      if(isSuperUser()){
+        toast('Access restricted', 'Super User accounts cannot delete user accounts.', 'warn');
+        return;
+      }
       const mail = tr.querySelector('.who small').textContent.trim();
       if(!confirm('Remove ' + mail + ' for good?\n\nTheir sign-in account is deleted and they lose access immediately. Uploaded files are kept.')) return;
       const { error } = await sb.rpc('isd_admin_delete_user', {p_id: id});
@@ -785,16 +813,17 @@ async function addUser(){
   const repAcc = menu_access.includes('isd') && !menu_access.includes('nisd') ? 'isd' : menu_access.includes('nisd') && !menu_access.includes('isd') ? 'nisd' : 'combined';
   const site_access = document.getElementById('nuSite')?.value || 'both';
   const role = document.getElementById('nuRole').value;
-  const can_view_creds = role === 'admin' ? true : (document.getElementById('nuCanViewCreds')?.checked || false);
-  const can_update_creds = role === 'admin' ? true : (document.getElementById('nuCanUpdateCreds')?.checked || false);
+  const isSuper = role === 'super_user' || role === 'superuser';
+  const can_view_creds = role === 'admin' ? true : (isSuper ? false : (document.getElementById('nuCanViewCreds')?.checked || false));
+  const can_update_creds = role === 'admin' ? true : (isSuper ? false : (document.getElementById('nuCanUpdateCreds')?.checked || false));
   const { error } = await sb.from('isd_invites').upsert({
     email,
     full_name: document.getElementById('nuName').value.trim() || null,
     role,
-    taluks,
-    menu_access: menu_access.length ? menu_access : ['upload','isd','single','fline','nisd','chitta','eservices'],
-    report_access: repAcc,
-    site_access,
+    taluks: isSuper ? [] : taluks,
+    menu_access: isSuper ? ['upload','isd','single','fline','nisd','chitta','eservices'] : (menu_access.length ? menu_access : ['upload','isd','single','fline','nisd','chitta','eservices']),
+    report_access: isSuper ? 'combined' : repAcc,
+    site_access: isSuper ? 'both' : site_access,
     can_view_creds,
     can_update_creds,
     created_by: ME.id,
@@ -804,6 +833,12 @@ async function addUser(){
   renderUsers();
 }
 async function patchUser(id, patch, keep){
+  if(patch.role === 'super_user' || patch.role === 'superuser'){
+    patch.can_view_creds = false;
+    patch.can_update_creds = false;
+    patch.taluks = [];
+    patch.site_access = 'both';
+  }
   const { error } = await sb.from('isd_users').update(patch).eq('id', id);
   if(error){ toast('Could not update', error.message, 'err'); return; }
   let what = 'Account updated.';
