@@ -71,9 +71,13 @@ function resolveTalukCode(val) {
   return '12';
 }
 
-function isSuperUser(){
-  return !!(ME && (ME.role === 'super_user' || ME.role === 'superuser'));
+function isUserSuper(u){
+  return !!(u && (u.role === 'super_user' || u.role === 'superuser' || u.report_access === 'super_user'));
 }
+function isSuperUser(){
+  return isUserSuper(ME);
+}
+window.isUserSuper = isUserSuper;
 window.isSuperUser = isSuperUser;
 
 function allTaluks(){
@@ -366,7 +370,7 @@ function renderWhoAmI(){
 
 function openAcct(){
   const w = document.getElementById('acctWho');
-  if(ME && w) w.innerHTML = 'Signed in as <b>' + esc(ME.email) + '</b> · ' + esc(ME.role) +
+  if(ME && w) w.innerHTML = 'Signed in as <b>' + esc(ME.email) + '</b> · ' + (isSuperUser() ? 'super user' : esc(ME.role)) +
     (ME.taluks && ME.taluks.length ? ' · ' + esc(ME.taluks.join(', ')) : ' · all taluks');
   document.getElementById('pwNew').value = '';
   document.getElementById('pwNew2').value = '';
@@ -405,11 +409,12 @@ async function changePassword(){
 /* ---------- Navigation & Tab Switching ---------- */
 function switchTab(tabKey) {
   const isAdmin = !CLOUD_ON || (ME && ME.role === 'admin');
-  if(tabKey === 'users' && !isAdmin){
+  const isPrivileged = isAdmin || isSuperUser();
+  if(tabKey === 'users' && !isPrivileged){
     toast('Admin only', 'Only administrators can manage user accounts.', 'warn');
     return;
   }
-  if(!hasMenu(tabKey) && !isAdmin){
+  if(!hasMenu(tabKey) && !isPrivileged){
     toast('Access restricted', 'You do not have permission to access ' + tabKey + '. Contact an admin.', 'warn');
     return;
   }
@@ -697,29 +702,29 @@ async function renderUsers(){
   (users||[]).forEach(u=>{
     const isMe = ME && u.id === ME.id;
     const sAcc = u.site_access || 'both';
-    const isUserSuper = u.role === 'super_user' || u.role === 'superuser';
+    const isUserSuperVal = isUserSuper(u);
     const isUserAdmin = u.role === 'admin';
     const currentMenus = u.menu_access || (u.report_access === 'isd' ? ['upload','isd','single'] : u.report_access === 'nisd' ? ['upload','nisd'] : ['upload','isd','single','fline','nisd','chitta','eservices']);
     h += '<tr class="'+(u.active?'':'off')+'" data-id="'+esc(u.id)+'">' +
       '<td class="who"><b>'+esc(u.full_name || u.email)+'</b><small>'+esc(u.email)+'</small></td>' +
       '<td><select data-act="role"'+(isMe?' disabled title="You cannot change your own role"':'')+'>' +
-        '<option value="user"'+(u.role==='user'?' selected':'')+'>User</option>' +
-        '<option value="super_user"'+(isUserSuper?' selected':'')+'>Super User</option>' +
+        '<option value="user"'+(!isUserAdmin && !isUserSuperVal ?' selected':'')+'>User</option>' +
+        '<option value="super_user"'+(isUserSuperVal?' selected':'')+'>Super User</option>' +
         '<option value="admin"'+(isUserAdmin?' selected':'')+'>Admin</option></select></td>' +
-      '<td>'+(isUserAdmin || isUserSuper
+      '<td>'+(isUserAdmin || isUserSuperVal
                ? '<span class="fstate">all menus (' + (isUserAdmin ? 'admin' : 'super user') + ')</span>'
                : menuPicker(currentMenus, 'data-act="menus"'))+'</td>' +
-      '<td><select data-act="site"'+((isUserAdmin || isUserSuper)?' disabled title="Full access to both sites"':'')+'>' +
+      '<td><select data-act="site"'+((isUserAdmin || isUserSuperVal)?' disabled title="Full access to both sites"':'')+'>' +
         '<option value="both"'+(sAcc==='both'?' selected':'')+'>Both Sites</option>' +
         '<option value="village-auto-test"'+(sAcc==='village-auto-test'?' selected':'')+'>village-auto-test</option>' +
         '<option value="talukwork"'+((sAcc==='talukwork'||sAcc==='village-applications')?' selected':'')+'>Taluk Work Only</option>' +
         '<option value="village-auto-test"'+(sAcc==='village-auto-test'?' selected':'')+'>Reports Only</option></select></td>' +
-      '<td>'+(isUserAdmin || isUserSuper
+      '<td>'+(isUserAdmin || isUserSuperVal
                ? '<span class="fstate">every taluk (' + (isUserAdmin ? 'admin' : 'super user') + ')</span>'
                : talukPicker(u.taluks, 'data-act="taluks"'))+'</td>' +
       '<td>'+(isUserAdmin
                ? '<span class="fstate">Full (admin)</span>'
-               : (isUserSuper
+               : (isUserSuperVal
                    ? '<span class="fstate" style="color:var(--warn)">No credentials (protected)</span>'
                    : '<div style="display:flex; flex-direction:column; gap:4px; font-size:11.5px;">' +
                        '<label style="display:inline-flex; align-items:center; gap:5px; cursor:pointer; white-space:nowrap;">' +
@@ -740,13 +745,15 @@ async function renderUsers(){
       '</td></tr>';
   });
   (invites||[]).forEach(i=>{
+    const isInvSuper = i.role === 'super_user' || i.role === 'superuser' || i.report_access === 'super_user';
+    const isInvAdmin = i.role === 'admin';
     h += '<tr class="off" data-invite="'+esc(i.email)+'">' +
       '<td class="who"><b>'+esc(i.full_name || i.email)+'</b><small>'+esc(i.email)+'</small></td>' +
-      '<td><span class="fstate">'+esc(i.role)+'</span></td>' +
-      '<td><span class="fstate">'+(i.menu_access && i.menu_access.length ? esc(i.menu_access.join(', ')) : esc(i.report_access || 'all'))+'</span></td>' +
+      '<td><span class="fstate">'+(isInvAdmin ? 'Admin' : (isInvSuper ? 'Super User' : esc(i.role || 'User')))+'</span></td>' +
+      '<td><span class="fstate">'+(isInvSuper ? 'all menus (super user)' : (i.menu_access && i.menu_access.length ? esc(i.menu_access.join(', ')) : esc(i.report_access || 'all')))+'</span></td>' +
       '<td><span class="fstate">'+esc(i.site_access || 'both')+'</span></td>' +
-      '<td><span class="fstate">'+(i.taluks && i.taluks.length ? esc(i.taluks.join(', ')) : 'All')+'</span></td>' +
-      '<td><span class="fstate">'+(i.role === 'admin' ? 'Full (admin)' : (i.role === 'super_user' ? 'Protected (super user)' : (((i.can_view_creds ? '👁️ View ' : '') + (i.can_update_creds ? '✏️ Update' : '')) || 'None')))+'</span></td>' +
+      '<td><span class="fstate">'+(isInvSuper ? 'every taluk (super user)' : (i.taluks && i.taluks.length ? esc(i.taluks.join(', ')) : 'All'))+'</span></td>' +
+      '<td><span class="fstate">'+(isInvAdmin ? 'Full (admin)' : (isInvSuper ? 'Protected (super user)' : (((i.can_view_creds ? '👁️ View ' : '') + (i.can_update_creds ? '✏️ Update' : '')) || 'None')))+'</span></td>' +
       '<td><span style="color:var(--warn)">Invited</span></td>' +
       '<td style="text-align:right"><button class="ghost" data-act="uninvite">Remove</button></td></tr>';
   });
@@ -816,30 +823,56 @@ async function addUser(){
   const isSuper = role === 'super_user' || role === 'superuser';
   const can_view_creds = role === 'admin' ? true : (isSuper ? false : (document.getElementById('nuCanViewCreds')?.checked || false));
   const can_update_creds = role === 'admin' ? true : (isSuper ? false : (document.getElementById('nuCanUpdateCreds')?.checked || false));
-  const { error } = await sb.from('isd_invites').upsert({
+  const invitePayload = {
     email,
     full_name: document.getElementById('nuName').value.trim() || null,
-    role,
+    role: isSuper ? 'super_user' : role,
     taluks: isSuper ? [] : taluks,
     menu_access: isSuper ? ['upload','isd','single','fline','nisd','chitta','eservices'] : (menu_access.length ? menu_access : ['upload','isd','single','fline','nisd','chitta','eservices']),
-    report_access: isSuper ? 'combined' : repAcc,
+    report_access: isSuper ? 'super_user' : repAcc,
     site_access: isSuper ? 'both' : site_access,
     can_view_creds,
     can_update_creds,
     created_by: ME.id,
-  }, {onConflict:'email'});
+  };
+  let { error } = await sb.from('isd_invites').upsert(invitePayload, {onConflict:'email'});
+  if(error && isSuper && (error.message.includes('isd_invites_role_check') || error.message.includes('check constraint'))){
+    console.warn('Postgres isd_invites_role_check blocked role=super_user; saving via report_access fallback.');
+    invitePayload.role = 'user';
+    invitePayload.report_access = 'super_user';
+    const retry = await sb.from('isd_invites').upsert(invitePayload, {onConflict:'email'});
+    error = retry.error;
+  }
   if(error){ toast('Could not add the user', error.message, 'err'); return; }
   toast('User added', email + ' can now set a password on the sign-in page.', 'ok');
   renderUsers();
 }
 async function patchUser(id, patch, keep){
-  if(patch.role === 'super_user' || patch.role === 'superuser'){
+  const isSuper = patch.role === 'super_user' || patch.role === 'superuser';
+  if(isSuper){
     patch.can_view_creds = false;
     patch.can_update_creds = false;
     patch.taluks = [];
     patch.site_access = 'both';
+    patch.report_access = 'super_user';
+  } else if(patch.role === 'user' || patch.role === 'admin'){
+    patch.report_access = 'combined';
   }
-  const { error } = await sb.from('isd_users').update(patch).eq('id', id);
+  let { error } = await sb.from('isd_users').update(patch).eq('id', id);
+
+  // If Postgres check constraint (isd_users_role_check) blocks role='super_user'
+  if(error && isSuper && (error.message.includes('isd_users_role_check') || error.message.includes('violates check constraint') || error.message.includes('check constraint'))){
+    console.warn('Postgres isd_users_role_check blocked role=super_user; saving via report_access fallback.');
+    const fallbackPatch = Object.assign({}, patch, { role: 'user', report_access: 'super_user' });
+    const retry = await sb.from('isd_users').update(fallbackPatch).eq('id', id);
+    error = retry.error;
+    if(!error){
+      toast('Super User Assigned', 'Account saved as Super User! (Compatibility mode active. Run the SQL script in DB Info to upgrade Postgres check constraint).', 'ok');
+      if(!keep) renderUsers();
+      return;
+    }
+  }
+
   if(error){ toast('Could not update', error.message, 'err'); return; }
   let what = 'Account updated.';
   if (patch.taluks) {
@@ -851,7 +884,7 @@ async function patchUser(id, patch, keep){
   } else if (patch.site_access) {
     what = 'Site access set to: ' + patch.site_access;
   } else if (patch.role) {
-    what = 'Role set to: ' + patch.role;
+    what = isSuper ? 'Role set to: Super User' : ('Role set to: ' + patch.role);
   } else if ('can_view_creds' in patch) {
     what = 'Credentials view permission ' + (patch.can_view_creds ? 'granted.' : 'revoked.');
   } else if ('can_update_creds' in patch) {
@@ -5611,7 +5644,17 @@ async function renderDbInfoTab() {
 <span style="color:#38bdf8;">ALTER TABLE</span> public.isd_invites <span style="color:#38bdf8;">ENABLE ROW LEVEL SECURITY</span>;
 <span style="color:#38bdf8;">ALTER TABLE</span> public.isd_taluk_credentials <span style="color:#38bdf8;">ENABLE ROW LEVEL SECURITY</span>;
 <span style="color:#38bdf8;">ALTER TABLE</span> public.isd_test_datasets <span style="color:#38bdf8;">ENABLE ROW LEVEL SECURITY</span>;
-<span style="color:#38bdf8;">ALTER TABLE</span> public.patta_corrections <span style="color:#38bdf8;">ENABLE ROW LEVEL SECURITY</span>;</code></pre>
+<span style="color:#38bdf8;">ALTER TABLE</span> public.patta_corrections <span style="color:#38bdf8;">ENABLE ROW LEVEL SECURITY</span>;
+
+<span style="color:#64748b;">-- ============================================================
+-- 5. UPGRADE CHECK CONSTRAINTS FOR SUPER USER SUPPORT
+-- Run in Supabase SQL Editor if "isd_users_role_check" constraint violation occurs
+-- ============================================================</span>
+<span style="color:#38bdf8;">ALTER TABLE</span> public.isd_users <span style="color:#38bdf8;">DROP CONSTRAINT IF EXISTS</span> isd_users_role_check;
+<span style="color:#38bdf8;">ALTER TABLE</span> public.isd_users <span style="color:#38bdf8;">ADD CONSTRAINT</span> isd_users_role_check <span style="color:#38bdf8;">CHECK</span> (role <span style="color:#38bdf8;">IN</span> (<span style="color:#a5d6a7;">'user'</span>, <span style="color:#a5d6a7;">'admin'</span>, <span style="color:#a5d6a7;">'super_user'</span>, <span style="color:#a5d6a7;">'superuser'</span>));
+
+<span style="color:#38bdf8;">ALTER TABLE</span> public.isd_invites <span style="color:#38bdf8;">DROP CONSTRAINT IF EXISTS</span> isd_invites_role_check;
+<span style="color:#38bdf8;">ALTER TABLE</span> public.isd_invites <span style="color:#38bdf8;">ADD CONSTRAINT</span> isd_invites_role_check <span style="color:#38bdf8;">CHECK</span> (role <span style="color:#38bdf8;">IN</span> (<span style="color:#a5d6a7;">'user'</span>, <span style="color:#a5d6a7;">'admin'</span>, <span style="color:#a5d6a7;">'super_user'</span>, <span style="color:#a5d6a7;">'superuser'</span>));</code></pre>
         </div>
 
       </div>
